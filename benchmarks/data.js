@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1769496471619,
+  "lastUpdate": 1770382088639,
   "repoUrl": "https://github.com/5474312/n8n-mcp",
   "entries": {
     "n8n-mcp Benchmarks": [
@@ -23,6 +23,37 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/5474312/n8n-mcp/commit/c8c76e435d80953cdbde3fc8b86675285c555b30"
         },
         "date": 1769496471107,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "sample - array sorting - small",
+            "value": 0.0136,
+            "range": "0.3096",
+            "unit": "ms",
+            "extra": "73341 ops/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "56956555+czlonkowski@users.noreply.github.com",
+            "name": "Romuald Członkowski",
+            "username": "czlonkowski"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "68148804105efa21b592242a9e5f61f52c55c778",
+          "message": "chore: update n8n to 2.6.3 and bump version to 2.33.6 (#571)",
+          "timestamp": "2026-02-06T09:09:37+01:00",
+          "tree_id": "7cc6335dd85928c7b9ef7c72680ceec376426d28",
+          "url": "https://github.com/5474312/n8n-mcp/commit/68148804105efa21b592242a9e5f61f52c55c778"
+        },
+        "date": 1770382088315,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
