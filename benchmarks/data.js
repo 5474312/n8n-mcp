@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770519009223,
+  "lastUpdate": 1770606968458,
   "repoUrl": "https://github.com/5474312/n8n-mcp",
   "entries": {
     "n8n-mcp Benchmarks": [
@@ -147,6 +147,37 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/5474312/n8n-mcp/commit/c6015817146aa62981e129227bf9e72e40e27b1a"
         },
         "date": 1770519008980,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "sample - array sorting - small",
+            "value": 0.0136,
+            "range": "0.3096",
+            "unit": "ms",
+            "extra": "73341 ops/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "56956555+czlonkowski@users.noreply.github.com",
+            "name": "Romuald Członkowski",
+            "username": "czlonkowski"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "89146186d8c5d480e284eefbade2c564e80374db",
+          "message": "feat: UI/UX redesign for MCP Apps - 3 new apps + enhanced existing (#583)\n\nAdd workflow-list, execution-history, and health-dashboard apps.\nRedesign operation-result with operation-aware headers, detail panels,\nand copy-to-clipboard. Fix React hooks violations in validation-summary\nand execution-history (useMemo after early returns). Add local preview\nharness for development. Update tests for 5-app config.\n\nConceived by Romuald Członkowski - www.aiadvisors.pl/en\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-02-09T03:36:27+01:00",
+          "tree_id": "0f7ed6841ebdb0b393b21bec41ab30973d65406a",
+          "url": "https://github.com/5474312/n8n-mcp/commit/89146186d8c5d480e284eefbade2c564e80374db"
+        },
+        "date": 1770606967757,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
