@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770687507306,
+  "lastUpdate": 1771570140870,
   "repoUrl": "https://github.com/5474312/n8n-mcp",
   "entries": {
     "n8n-mcp Benchmarks": [
@@ -240,6 +240,37 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/5474312/n8n-mcp/commit/6f695be48205831f4dcccf73c3d60cced196b77c"
         },
         "date": 1770687506905,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "sample - array sorting - small",
+            "value": 0.0136,
+            "range": "0.3096",
+            "unit": "ms",
+            "extra": "73341 ops/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "56956555+czlonkowski@users.noreply.github.com",
+            "name": "Romuald Członkowski",
+            "username": "czlonkowski"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "77048347b3a82421ffa0b8b6bd44f8f50dd8cf52",
+          "message": "chore: update n8n to 2.8.3 (#603)\n\n* chore: update n8n to 2.8.3 and bump version to 2.35.3\n\n- Updated n8n from 2.6.3 to 2.8.3\n- Updated n8n-core from 2.6.1 to 2.8.1\n- Updated n8n-workflow from 2.6.0 to 2.8.0\n- Updated @n8n/n8n-nodes-langchain from 2.6.2 to 2.8.1\n- Fixed node loader to bypass restricted package.json exports in\n  @n8n/n8n-nodes-langchain >=2.9.0 (resolves via absolute paths)\n- Fixed community doc generator for cloud LLMs: added API key env var\n  support, switched to max_completion_tokens, auto-omit temperature\n- Rebuilt node database with 1,236 nodes (673 n8n-nodes-base,\n  133 @n8n/n8n-nodes-langchain, 430 community)\n- Refreshed community nodes (361 verified + 69 npm) with 424 AI summaries\n- Updated README badge with new n8n version and node counts\n- Updated CHANGELOG with dependency changes\n\nConceived by Romuald Członkowski - https://www.aiadvisors.pl/en\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\n\n* fix: update documentation-generator tests for max_completion_tokens\n\n- Updated test assertions from max_tokens to max_completion_tokens\n- Updated testConnection token limit expectation from 10 to 200\n- Added temperature to test config to match new configurable behavior\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-02-20T02:15:15+01:00",
+          "tree_id": "3fd6bf33adf702cee779dffe9196bb2155947f22",
+          "url": "https://github.com/5474312/n8n-mcp/commit/77048347b3a82421ffa0b8b6bd44f8f50dd8cf52"
+        },
+        "date": 1771570140371,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
