@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772650162714,
+  "lastUpdate": 1772930980398,
   "repoUrl": "https://github.com/5474312/n8n-mcp",
   "entries": {
     "n8n-mcp Benchmarks": [
@@ -364,6 +364,37 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/5474312/n8n-mcp/commit/0998e5486e47cc5a804e0c3e56a974248ffa426b"
         },
         "date": 1772650162084,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "sample - array sorting - small",
+            "value": 0.0136,
+            "range": "0.3096",
+            "unit": "ms",
+            "extra": "73341 ops/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "56956555+czlonkowski@users.noreply.github.com",
+            "name": "Romuald Członkowski",
+            "username": "czlonkowski"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0918cd54255aea144157ead84f1c23b9c592e588",
+          "message": "feat(validator): detect broken/malformed workflow connections (#620) (#621)",
+          "timestamp": "2026-03-07T23:55:23+01:00",
+          "tree_id": "e2daf48dda700c4ae571e74c979df5659b41666e",
+          "url": "https://github.com/5474312/n8n-mcp/commit/0918cd54255aea144157ead84f1c23b9c592e588"
+        },
+        "date": 1772930980149,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
