@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772974148461,
+  "lastUpdate": 1773514149970,
   "repoUrl": "https://github.com/5474312/n8n-mcp",
   "entries": {
     "n8n-mcp Benchmarks": [
@@ -426,6 +426,37 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/5474312/n8n-mcp/commit/25b8a8145d0fc84fb23c51ffee6a103b99c90463"
         },
         "date": 1772974148187,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "sample - array sorting - small",
+            "value": 0.0136,
+            "range": "0.3096",
+            "unit": "ms",
+            "extra": "73341 ops/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "56956555+czlonkowski@users.noreply.github.com",
+            "name": "Romuald Członkowski",
+            "username": "czlonkowski"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "599bc664d094b1729f71ef523c9d35d16a45f833",
+          "message": "fix: numeric sourceOutput remapping, IMAP trigger detection, AI tool description validation (#537, #538, #477, #602) (#636)\n\n- Remap numeric sourceOutput (\"0\",\"1\") to \"main\" with sourceIndex,\n  with guard to skip when branch/case smart params are present (#537)\n- Recognize emailReadImap as activatable trigger in isTriggerNode() (#538)\n- Add getToolDescription() helper checking toolDescription, description,\n  and options.description across all AI tool validators (#477)\n- Defensive check for missing workflow ID in create response (#602)\n- Relax flaky CI thresholds: perf test ratio 15→20, timing variance 10%→50%\n\nConceived by Romuald Członkowski - www.aiadvisors.pl/en\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-03-14T18:40:58+01:00",
+          "tree_id": "b8e5916dcaa1a0175ae3e1c2b3e3e5773e51b2e6",
+          "url": "https://github.com/5474312/n8n-mcp/commit/599bc664d094b1729f71ef523c9d35d16a45f833"
+        },
+        "date": 1773514149614,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
