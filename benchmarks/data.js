@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773514149970,
+  "lastUpdate": 1773578947657,
   "repoUrl": "https://github.com/5474312/n8n-mcp",
   "entries": {
     "n8n-mcp Benchmarks": [
@@ -457,6 +457,37 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/5474312/n8n-mcp/commit/599bc664d094b1729f71ef523c9d35d16a45f833"
         },
         "date": 1773514149614,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "sample - array sorting - small",
+            "value": 0.0136,
+            "range": "0.3096",
+            "unit": "ms",
+            "extra": "73341 ops/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "56956555+czlonkowski@users.noreply.github.com",
+            "name": "Romuald Członkowski",
+            "username": "czlonkowski"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "65ab94deb27b01b3f1eb084e1d2e8f7b74ad4465",
+          "message": "fix: code validator false positives and null property removal (#294, #293, #611) (#637)\n\n- Fix $() node reference triggering \"Invalid $ usage\" warning by adding ( and _ to regex lookahead\n- Fix helper function primitive returns triggering \"Cannot return primitive values\" error\n- Fix null values in diff engine causing Zod validation errors — null now deletes properties\n- Update property removal docs from undefined to null\n\nConceived by Romuald Członkowski - https://www.aiadvisors.pl/en\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-03-15T11:26:44+01:00",
+          "tree_id": "bf5205fec682486a742d8355ad764c390977ff5d",
+          "url": "https://github.com/5474312/n8n-mcp/commit/65ab94deb27b01b3f1eb084e1d2e8f7b74ad4465"
+        },
+        "date": 1773578946989,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
