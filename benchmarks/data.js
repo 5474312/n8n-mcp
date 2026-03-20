@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773859715869,
+  "lastUpdate": 1774032487800,
   "repoUrl": "https://github.com/5474312/n8n-mcp",
   "entries": {
     "n8n-mcp Benchmarks": [
@@ -550,6 +550,37 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/5474312/n8n-mcp/commit/14962a39b648d0e22d40b7848950b761d458f34c"
         },
         "date": 1773859715581,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "sample - array sorting - small",
+            "value": 0.0136,
+            "range": "0.3096",
+            "unit": "ms",
+            "extra": "73341 ops/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "56956555+czlonkowski@users.noreply.github.com",
+            "name": "Romuald Członkowski",
+            "username": "czlonkowski"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "47a1cb135db7fd4a9f02d694286c5091dc86cbe2",
+          "message": "feat: implement transferWorkflow operation in n8n_update_partial_workflow (#644) (#649)\n\nAdd transferWorkflow diff operation to move workflows between n8n projects:\n- TransferWorkflowOperation type with destinationProjectId field\n- WorkflowDiffEngine validates and tracks transfer intent\n- Handler calls PUT /workflows/{id}/transfer after update\n- N8nApiClient.transferWorkflow() method\n- Zod schema validates destinationProjectId is non-empty\n- Tool description and documentation updated\n- inferIntentFromOperations case for transfer\n\nAlso fixes two pre-existing bugs found during review:\n- continueOnError path now properly extracts/propagates activation flags\n- Debug log in updateConnectionReferences shows correct old name\n\nBased on work by @djakielski in PR #645.\n\n\nConceived by Romuald Członkowski - https://www.aiadvisors.pl/en",
+          "timestamp": "2026-03-20T17:50:00+01:00",
+          "tree_id": "1d2537cd8b69eecf2e98ceadad07b68cbc5df9ef",
+          "url": "https://github.com/5474312/n8n-mcp/commit/47a1cb135db7fd4a9f02d694286c5091dc86cbe2"
+        },
+        "date": 1774032487305,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
