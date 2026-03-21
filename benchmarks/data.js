@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774032487800,
+  "lastUpdate": 1774118886787,
   "repoUrl": "https://github.com/5474312/n8n-mcp",
   "entries": {
     "n8n-mcp Benchmarks": [
@@ -581,6 +581,37 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/5474312/n8n-mcp/commit/47a1cb135db7fd4a9f02d694286c5091dc86cbe2"
         },
         "date": 1774032487305,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "sample - array sorting - small",
+            "value": 0.0136,
+            "range": "0.3096",
+            "unit": "ms",
+            "extra": "73341 ops/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "56956555+czlonkowski@users.noreply.github.com",
+            "name": "Romuald Członkowski",
+            "username": "czlonkowski"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "be3d07dbdc6e18c05da99337920cce94426f7a6a",
+          "message": "feat: add n8n_manage_datatable MCP tool with full CRUD (#640) (#650)\n\n* feat: add n8n_create_data_table MCP tool and projectId for create workflow (#640)\n\nAdd new MCP tool to create n8n data tables via the REST API:\n- n8n_create_data_table tool definition with name + columns schema\n- handleCreateDataTable handler with Zod validation and N8nApiError handling\n- N8nApiClient.createDataTable() calling POST /data-tables\n- DataTable, DataTableColumn, DataTableColumnResponse types per OpenAPI spec\n- Column types: string | number | boolean | date | json\n- Input validation: .min(1) on table name and column names\n- Tool documentation with examples, use cases, and pitfalls\n\nAlso adds projectId parameter to n8n_create_workflow for enterprise\nproject support, and fixes stale management tool count in health check.\n\nBased on work by @djakielski in PR #646.\nCo-Authored-By: Dominik Jakielski <dominik.jakielski@urlaubsguru.de>\n\nConceived by Romuald Członkowski - https://www.aiadvisors.pl/en\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* feat: replace n8n_create_data_table with n8n_manage_datatable (10 actions)\n\nReplaces the single-purpose n8n_create_data_table tool with a comprehensive\nn8n_manage_datatable tool covering all 10 n8n data table API endpoints:\n\nTable operations: createTable, listTables, getTable, updateTable, deleteTable\nRow operations: getRows, insertRows, updateRows, upsertRows, deleteRows\n\n- Filter system with and/or logic and 8 condition operators\n- Dry-run support for updateRows, upsertRows, deleteRows\n- Pagination, sorting, and full-text search for row listing\n- 9 new N8nApiClient methods for all data table endpoints\n- Shared error handler and consolidated Zod schemas\n- Comprehensive tool documentation with examples per action\n- 36 handler tests + 18 API client tests\n\nBREAKING: n8n_create_data_table removed. Use n8n_manage_datatable with\naction=\"createTable\" instead.\n\nBased on work by @djakielski in PR #646.\nCo-Authored-By: Dominik Jakielski <dominik.jakielski@urlaubsguru.de>\n\nConceived by Romuald Członkowski - https://www.aiadvisors.pl/en",
+          "timestamp": "2026-03-21T19:06:22+01:00",
+          "tree_id": "ee72a38f5e97543560230663aac76a8f9a3c26cc",
+          "url": "https://github.com/5474312/n8n-mcp/commit/be3d07dbdc6e18c05da99337920cce94426f7a6a"
+        },
+        "date": 1774118886417,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
