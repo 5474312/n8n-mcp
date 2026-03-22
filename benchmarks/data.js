@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774118886787,
+  "lastUpdate": 1774140490470,
   "repoUrl": "https://github.com/5474312/n8n-mcp",
   "entries": {
     "n8n-mcp Benchmarks": [
@@ -612,6 +612,37 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/5474312/n8n-mcp/commit/be3d07dbdc6e18c05da99337920cce94426f7a6a"
         },
         "date": 1774118886417,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "sample - array sorting - small",
+            "value": 0.0136,
+            "range": "0.3096",
+            "unit": "ms",
+            "extra": "73341 ops/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "56956555+czlonkowski@users.noreply.github.com",
+            "name": "Romuald Członkowski",
+            "username": "czlonkowski"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c5665632af4d1d2366bcbf8d079d48c38e4fbecb",
+          "message": "fix: resolve 5 bugs in n8n_manage_datatable (#651)",
+          "timestamp": "2026-03-22T00:12:39+01:00",
+          "tree_id": "3f5522660cb7a912b655a9ae6e10687ada1c5818",
+          "url": "https://github.com/5474312/n8n-mcp/commit/c5665632af4d1d2366bcbf8d079d48c38e4fbecb"
+        },
+        "date": 1774140490210,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
