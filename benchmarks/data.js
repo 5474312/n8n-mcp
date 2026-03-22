@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774140490470,
+  "lastUpdate": 1774205296442,
   "repoUrl": "https://github.com/5474312/n8n-mcp",
   "entries": {
     "n8n-mcp Benchmarks": [
@@ -643,6 +643,37 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/5474312/n8n-mcp/commit/c5665632af4d1d2366bcbf8d079d48c38e4fbecb"
         },
         "date": 1774140490210,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "sample - array sorting - small",
+            "value": 0.0136,
+            "range": "0.3096",
+            "unit": "ms",
+            "extra": "73341 ops/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "56956555+czlonkowski@users.noreply.github.com",
+            "name": "Romuald Członkowski",
+            "username": "czlonkowski"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6f6668acc42a572b0932b581efd0b430a7859322",
+          "message": "fix: resolve double URL-encoding in datatable filter/sortBy query params (#652)",
+          "timestamp": "2026-03-22T15:59:34+01:00",
+          "tree_id": "5b9e22ef0ab81277f7ee1ce0717cac2fb6a9852b",
+          "url": "https://github.com/5474312/n8n-mcp/commit/6f6668acc42a572b0932b581efd0b430a7859322"
+        },
+        "date": 1774205295807,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
