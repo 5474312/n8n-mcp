@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774205296442,
+  "lastUpdate": 1774226901113,
   "repoUrl": "https://github.com/5474312/n8n-mcp",
   "entries": {
     "n8n-mcp Benchmarks": [
@@ -674,6 +674,37 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/5474312/n8n-mcp/commit/6f6668acc42a572b0932b581efd0b430a7859322"
         },
         "date": 1774205295807,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "sample - array sorting - small",
+            "value": 0.0136,
+            "range": "0.3096",
+            "unit": "ms",
+            "extra": "73341 ops/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "56956555+czlonkowski@users.noreply.github.com",
+            "name": "Romuald Członkowski",
+            "username": "czlonkowski"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1f0738e637d8db5307ad531317045fd49aa3773a",
+          "message": "fix: auto-inject webhookId on webhook nodes during create/update (#643) (#657)\n\nn8n 2.10+ requires webhookId (UUID) on webhook-type nodes for proper\nwebhook URL registration. Without it, webhooks silently fail with 404.\nThe n8n UI always generates webhookId but programmatic creation via\nn8n-mcp did not.\n\nAdd ensureWebhookIds() helper that injects crypto.randomUUID() on\nwebhook, webhookTrigger, formTrigger, and chatTrigger nodes when\nwebhookId is missing. Called from both cleanWorkflowForCreate() and\ncleanWorkflowForUpdate(). Existing webhookId values are preserved.\n\nConceived by Romuald Członkowski - https://www.aiadvisors.pl/en\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-03-22T23:20:34+01:00",
+          "tree_id": "c8fdb9aa2c1d8334d1a2a31c098756adbef2fc1d",
+          "url": "https://github.com/5474312/n8n-mcp/commit/1f0738e637d8db5307ad531317045fd49aa3773a"
+        },
+        "date": 1774226900455,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
