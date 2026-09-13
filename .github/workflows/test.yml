@@ -100,6 +100,13 @@ jobs:
       - name: Verify synthetic MCP host fixtures
         run: npm run ui:fixtures:smoke
 
+      - name: Verify UI assets in the prepared npm tarball
+        run: |
+          npm run prepare:publish
+          node scripts/ui-npm-smoke.mjs
+          bash scripts/publish-npm-quick.sh
+          node scripts/ui-npm-smoke.mjs
+
       - name: Install UI test browser
         run: npm --prefix ui-apps exec -- playwright install --with-deps chromium
 

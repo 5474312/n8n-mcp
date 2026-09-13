@@ -122,3 +122,12 @@ The simplifier review (Terra), independent code review (GPT-6), and successful F
 - A final independent review of this delta found no actionable correctness regressions. All executed CI checks for the preceding `6129d41c` commit passed, including the full test job and Docker builds for AMD64, ARM64 and Railway. These earlier CI results do not cover the new review fixes.
 
 This follow-up was tested locally through the real SDK bridge. It does not constitute a new ChatGPT web/native or Claude acceptance run. Restart the local fixture server/tunnel after rebuilding before checking the changed behavior in a chat host.
+
+
+## npm preparation review fix — 2026-09-13
+
+Copilot identified that the supported local npm preparation script omitted UI assets even though the release workflow packaged them. Both standard and quick preparation now rebuild UI, copy `ui-apps/dist`, whitelist the HTML assets and check the staged registry. CI creates a real npm tarball from each preparation path, extracts it into a temporary directory, checks all five cards and 13 tool mappings, and compares bundled HTML with the build output. The smoke uses an isolated npm cache and never publishes a package.
+
+Both preparation/archive checks passed locally, along with TypeScript, shell/YAML syntax, four bin-consistency tests and all 26 inspection-model tests. A negative test removed UI from the staged files whitelist; the tarball smoke correctly rejected the resulting package. The review's suppressed invalid-URL claim was checked against the source: the fixture contains a valid synthetic HTTPS URL and the credential/path-redaction assertions pass, so it required no change. A separate packaging reviewer identified the quick-script omission and confirmed the extracted registry resolves the correct runtime paths.
+
+All executed CI checks for the preceding `70a1eb15` commit passed. The packaging fix has its own CI run; these earlier results do not cover it.

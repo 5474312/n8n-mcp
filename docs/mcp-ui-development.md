@@ -21,6 +21,8 @@ Fixtures cover seven operation tools, three validation tools, workflow pages, ex
 
 ## Actual MCP protocol smoke
 
+Both `npm run prepare:publish` and `bash scripts/publish-npm-quick.sh` rebuild and stage the UI assets (install UI dependencies first). After either command, run `node scripts/ui-npm-smoke.mjs` to create and inspect a local npm tarball, including all five cards and their tool mappings. CI checks both preparation paths. These commands do not publish a package.
+
 Build both packages first, then run:
 
 ```sh
