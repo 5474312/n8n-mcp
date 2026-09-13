@@ -2,6 +2,21 @@ import { describe, it, expect } from 'vitest';
 import { decodeResult, initialResultState, reduceResult, count, object, text, type ResultEvent } from '../src/shared/result-state';
 const result = { content: [{ type: 'text', text: '{"valid":true}' }] };
 describe('MCP result boundary', () => {
+  it('accepts the actual outcome after a recoverable host diagnostic', () => {
+    const pending = reduceResult(initialResultState, { type: 'input', input: {} });
+    const warned = reduceResult(pending, { type: 'host-warning', error: 'Unknown progress token' });
+    expect(warned.phase).toBe('pending');
+    expect(warned.error).toBeNull();
+    expect(warned.hostWarning).toBe('Unknown progress token');
+    const ready = reduceResult(warned, { type: 'result', result: { ...result, _meta: { 'n8n-mcp/toolName': 'validate_workflow' } }, receivedAt: '2026-09-13T12:00:00Z' });
+    expect(ready.phase).toBe('ready');
+    expect(ready.hostWarning).toBeNull();
+    expect(ready.toolName).toBe('validate_workflow');
+    expect(reduceResult(ready, { type: 'host-warning', error: 'Late diagnostic' })).toBe(ready);
+    const next = reduceResult(ready, { type: 'input', input: {} });
+    expect(next.toolName).toBeNull();
+    expect(next.hostWarning).toBeNull();
+  });
   it('keeps every terminal snapshot immutable until new input', () => {
     const events: ResultEvent[] = [{ type: 'cancel' }, { type: 'error', error: 'Disconnected' }, { type: 'result', result, receivedAt: '2026-09-12T12:00:00Z' }];
     for (const first of events) {

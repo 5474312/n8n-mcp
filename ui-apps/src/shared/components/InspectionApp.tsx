@@ -1,11 +1,12 @@
 import React from 'react';
 import '../styles/theme.css';
 import { useToolData } from '../hooks/useToolData';
-import { executionModel, healthModel, workflowListModel, type Fact, type InspectionKind, type InspectionRow } from '../inspection-models';
+import { executionModel, healthModel, workflowListModel, type InspectionKind, type InspectionRow } from '../inspection-models';
 import { ResultBoundary, ResultCard, ResultContext } from './ResultCard';
-function Facts({ facts }: { facts: Fact[] }) {
-  return <dl className="result-facts">{facts.map(f => <React.Fragment key={f.label}><dt>{f.label}</dt><dd>{f.value}</dd></React.Fragment>)}</dl>;
-}
+import { Facts } from './Facts';
+const models: Record<InspectionKind, typeof workflowListModel> = {
+  Workflows: workflowListModel, Executions: executionModel, Connection: healthModel,
+};
 function Rows({ rows }: { rows: InspectionRow[] }) {
   return <ul className="inspection-list">{rows.map((row, index) => <li key={`${row.id}-${index}`}>
     <div className="inspection-row-title"><h2>{row.title}</h2><span className={`result-status tone-${row.tone}`}>{row.status}</span></div>
@@ -17,7 +18,7 @@ function Rows({ rows }: { rows: InspectionRow[] }) {
 }
 export default function InspectionApp({ kind }: { kind: InspectionKind }) {
   const state = useToolData();
-  const model = kind === 'Workflows' ? workflowListModel : kind === 'Executions' ? executionModel : healthModel;
+  const model = models[kind];
   const result = state.data ? model(state.data, state.input) : null;
   return <ResultBoundary kind={kind} state={state}>
     {result && <ResultCard kind={kind} {...result} synthetic={state.data?._uiTestFixture === true}>

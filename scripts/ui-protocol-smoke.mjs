@@ -57,11 +57,12 @@ try {
   };
   const result = await client.callTool({ name: tool.name, arguments: input });
   assert(!result.isError, 'Validation must return a domain result');
+  assert.equal(result._meta?.['n8n-mcp/toolName'], tool.name);
   const verdict = result.structuredContent ?? JSON.parse(result.content.find(item => item.type === 'text').text);
   assert.equal(typeof verdict.valid, 'boolean');
   const operation = {
     tool: 'n8n_create_workflow', input: { name: 'Synthetic saved workflow' }, html: operationHtml,
-    result: { content: [{ type: 'text', text: JSON.stringify({ success: true, data: { id: 'synthetic-smoke', name: 'Synthetic saved workflow', active: false, nodeCount: 2 } }) }] },
+    result: { _meta: { 'n8n-mcp/toolName': 'n8n_create_workflow' }, content: [{ type: 'text', text: JSON.stringify({ success: true, data: { id: 'synthetic-smoke', name: 'Synthetic saved workflow', active: false, nodeCount: 2 } }) }] },
   };
   await writeFile(path.join(root, 'ui-apps/.lab-smoke.json'), JSON.stringify({ validation: { tool: tool.name, input, result, html }, operation, resources: builtResources, capturedAt: new Date().toISOString() }));
   console.log('UI protocol smoke passed: offline tools/list, all five exact built resources, size budget, and validate_workflow. Management rendering uses synthetic fixtures; no live management call was made.');

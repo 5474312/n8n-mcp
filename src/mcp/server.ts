@@ -1049,6 +1049,10 @@ export class N8NDocumentationMCPServer {
           mcpResponse.structuredContent = structuredContent;
         }
 
+        // Response identity remains available when the host omits optional toolInfo.
+        if (UIAppRegistry.getAppForTool(name)?.html) {
+          mcpResponse._meta = { 'n8n-mcp/toolName': name };
+        }
         return mcpResponse;
       } catch (error) {
         logger.error(`Error executing tool ${name}`, error);

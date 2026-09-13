@@ -32,9 +32,18 @@ export function validationModel(raw: JsonObject, input: JsonObject | null, toolN
     valid: inner.valid,
     subject: text(inner.workflowName) ?? text(raw.displayName) ?? text(workflow?.name) ?? text(raw.nodeType) ?? 'Workflow validation',
     id: text(inner.workflowId) ?? text(input?.id),
-    scope: toolName === 'n8n_validate_workflow' ? 'Saved workflow' : toolName === 'validate_node' ? 'Node configuration' : 'Workflow definition',
+    scope: validationScope(toolName),
     profile: text(input?.profile) ?? text(options?.profile), errors, warnings,
     suggestions: Array.isArray(inner.suggestions) ? inner.suggestions.filter((s): s is string => typeof s === 'string') : [],
     errorCount, warningCount: Math.max(count(summary?.warningCount) ?? 0, warnings.length),
   };
+}
+
+function validationScope(toolName: string | null): string {
+  switch (toolName) {
+    case 'n8n_validate_workflow': return 'Saved workflow';
+    case 'validate_node': return 'Node configuration';
+    case 'validate_workflow': return 'Workflow definition';
+    default: return 'Scope not reported';
+  }
 }

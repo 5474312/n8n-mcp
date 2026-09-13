@@ -19,6 +19,7 @@ try {
     assert.equal(tool.annotations.readOnlyHint,true);
     const result=await client.callTool({name:f.tool,arguments:{scenario:f.id,...f.input}});
     assert(!result.isError);
+    assert.equal(result._meta?.['n8n-mcp/toolName'], f.tool);
     assert.deepEqual(result.structuredContent,{...f.data,_uiTestFixture:true});
     const resource=await client.readResource({uri:tool._meta.ui.resourceUri});
     assert.equal(resource.contents[0].text,await readFile(path.join(root,'ui-apps/dist',f.app,'index.html'),'utf8'));

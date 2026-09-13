@@ -42,6 +42,6 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
     return { isError: true, content: [{ type: 'text', text: 'Unknown fixture or mismatched arguments. Use the exact scenario arguments in the tool description.' }] };
   }
   const data = { ...f.data, _uiTestFixture: true };
-  return { content: [{ type: 'text', text: JSON.stringify(data) }], structuredContent: data };
+  return { content: [{ type: 'text', text: JSON.stringify(data) }], structuredContent: data, _meta: { 'n8n-mcp/toolName': params.name } };
 });
 await server.connect(new StdioServerTransport());

@@ -10,9 +10,10 @@ function Frame({ scenario, html, onLog }: { scenario: Scenario; html?: string; o
   useEffect(() => {
     const iframe = ref.current!;
     let disposed = false;
+    const transport = new PostMessageTransport(iframe.contentWindow!, iframe.contentWindow!);
     const scheme = window.matchMedia('(prefers-color-scheme: dark)');
     const bridge = new AppBridge(null, { name: 'n8n-mcp local lab', version: '1.0.0' }, {}, {
-      hostContext: { theme: scheme.matches ? 'dark' : 'light', toolInfo: { tool: { name: scenario.tool, inputSchema: { type: 'object' } } } },
+      hostContext: { theme: scheme.matches ? 'dark' : 'light', ...(scenario.omitToolInfo ? {} : { toolInfo: { tool: { name: scenario.tool, inputSchema: { type: 'object' as const } } } }) },
     });
     const log = (line: string) => { if (!disposed) onLog(line); };
     bridge.onsizechange = size => { if (!disposed && typeof size.height === 'number') setHeight(Math.min(1600, Math.max(180, size.height))); };
@@ -24,6 +25,12 @@ function Frame({ scenario, html, onLog }: { scenario: Scenario; html?: string; o
         await bridge.sendToolInput({ arguments: scenario.input });
         if (disposed) return;
         log('Tool input delivered');
+        if (scenario.hostDiagnostic) {
+          // An unknown progress token reaches App.onerror without closing the SDK transport.
+          await transport.send({ jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken: 'unknown-lab-token', progress: 1 } });
+          log('Recoverable host diagnostic delivered');
+          await new Promise(resolve => window.setTimeout(resolve, 1200));
+        }
         if (scenario.lifecycle === 'pending') return;
         if (scenario.lifecycle === 'cancelled' || scenario.lifecycle === 'late-result') {
           await bridge.sendToolCancelled({ reason: 'This call was cancelled in the lab.' });
@@ -36,7 +43,7 @@ function Frame({ scenario, html, onLog }: { scenario: Scenario; html?: string; o
     const themeChange = () => Promise.resolve(bridge.sendHostContextChange({ theme: scheme.matches ? 'dark' : 'light' })).catch(error => log(String(error)));
     scheme.addEventListener('change', themeChange);
     // Connect before navigating: the view can initialize as soon as scripts run.
-    void bridge.connect(new PostMessageTransport(iframe.contentWindow!, iframe.contentWindow!)).then(() => {
+    void bridge.connect(transport).then(() => {
       if (disposed) return;
       if (html) iframe.srcdoc = html;
       else iframe.src = `/src/apps/${scenario.app}/index.html`;

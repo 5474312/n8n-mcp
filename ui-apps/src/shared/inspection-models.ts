@@ -24,7 +24,9 @@ export function durationLabel(start: unknown, end: unknown): string {
   if (!a || !b) return 'Not reported';
   const ms = new Date(b).getTime() - new Date(a).getTime();
   if (!Number.isFinite(ms) || ms < 0) return 'Unavailable';
-  return ms < 1000 ? `${ms} ms` : ms < 60000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.floor(ms / 60000)} min ${Math.floor(ms % 60000 / 1000)} s`;
+  if (ms < 1000) return `${ms} ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)} s`;
+  return `${Math.floor(ms / 60000)} min ${Math.floor(ms % 60000 / 1000)} s`;
 }
 function filters(input: JsonObject | null, names: string[]): Fact[] {
   return names.flatMap(name => {

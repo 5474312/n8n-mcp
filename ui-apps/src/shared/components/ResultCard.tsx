@@ -32,7 +32,7 @@ export function ResultContext({ id, receivedAt, scope, profile, toolName, execut
 
 export function ResultBoundary({ kind, state, children }: {
   kind: string;
-  state: { phase: ResultPhase; error: string | null; isConnected: boolean; standalone: boolean; data?: Record<string, unknown> | null };
+  state: { phase: ResultPhase; error: string | null; hostWarning?: string | null; isConnected: boolean; standalone: boolean; data?: Record<string, unknown> | null };
   children: React.ReactNode;
 }) {
   if (state.standalone) return <ResultCard kind={kind} title="Open in an MCP Apps host" summary="This view receives results from the agent’s tool calls. For local testing, start the UI lab with npm run ui:dev." />;
@@ -40,5 +40,7 @@ export function ResultBoundary({ kind, state, children }: {
   if (state.phase === 'cancelled') return <ResultCard kind={kind} title="Tool call cancelled" summary={state.error ?? 'No outcome was confirmed for this call.'} />;
   if (state.error) return <ResultCard kind={kind} title="Result unavailable" summary={state.error} tone="error" />;
   if (!state.isConnected) return <ResultCard kind={kind} title="Connecting to host" summary="Establishing the result view." />;
-  return <ResultCard kind={kind} title={state.phase === 'pending' ? 'Tool call in progress' : 'Waiting for a tool result'} summary="No outcome has been returned yet." />;
+  return <ResultCard kind={kind} title={state.phase === 'pending' ? 'Tool call in progress' : 'Waiting for a tool result'} summary="No outcome has been returned yet.">
+    {state.hostWarning && <p className="result-note" role="status">A host communication problem occurred. Still waiting for the tool result.</p>}
+  </ResultCard>;
 }

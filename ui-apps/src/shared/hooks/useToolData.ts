@@ -10,7 +10,8 @@ export function useToolData<T = Record<string, unknown>>() {
     app.ontoolinput = input => dispatch({ type: 'input', input: input.arguments });
     app.ontoolresult = result => dispatch({ type: 'result', result, receivedAt: new Date().toISOString() });
     app.ontoolcancelled = params => dispatch({ type: 'cancel', reason: params.reason });
-    app.onerror = error => dispatch({ type: 'error', error: error.message });
+    // SDK protocol diagnostics do not necessarily end the tool invocation.
+    app.onerror = error => dispatch({ type: 'host-warning', error: error.message });
     app.addEventListener('hostcontextchanged', ctx => setContext(previous => ({ ...previous, ...ctx })));
   }, []);
   const { app, isConnected, error } = useApp({
@@ -25,7 +26,7 @@ export function useToolData<T = Record<string, unknown>>() {
   useHostStyles(app, context);
   return {
     ...state, data: state.data as T | null,
-    isConnected, app, toolName: context?.toolInfo?.tool.name ?? null,
+    isConnected, app, toolName: state.toolName ?? context?.toolInfo?.tool.name ?? null,
     standalone: typeof window !== 'undefined' && window.parent === window,
   };
 }

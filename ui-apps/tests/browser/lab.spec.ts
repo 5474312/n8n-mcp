@@ -1,6 +1,29 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 const result = (page: import('@playwright/test').Page) => page.frameLocator('iframe[title="MCP result card"]');
+test('a recoverable SDK diagnostic does not hide the subsequent tool result', async ({ page }) => {
+  await page.goto('/lab.html');
+  await page.getByRole('combobox', { name: 'Scenario', exact: true }).selectOption('recoverable-host-error');
+  await expect(result(page).getByText('A host communication problem occurred. Still waiting for the tool result.')).toBeVisible();
+  await expect(result(page).getByRole('status').first()).toHaveText('Workflow created');
+  await expect(result(page).getByText(/host communication problem/)).toHaveCount(0);
+});
+test('response identity works without optional host toolInfo across operation shapes', async ({ page }) => {
+  await page.goto('/lab.html');
+  for (const [scenario, title] of [
+    ['created', 'Workflow created'], ['full-update', 'Workflow updated'],
+    ['updated', 'Workflow updated'], ['deleted', 'Workflow deleted'],
+    ['preview', '2 fixes proposed'], ['triggered', 'Workflow triggered'],
+    ['template-setup', 'Template saved · setup needs review'],
+  ]) {
+    await page.getByRole('combobox', { name: 'Scenario', exact: true }).selectOption(`${scenario}-no-tool-info`);
+    await expect(result(page).getByRole('status')).toHaveText(title);
+  }
+  await page.getByRole('combobox', { name: 'Scenario', exact: true }).selectOption('invalid-no-tool-info');
+  await expect(result(page).getByRole('status')).toHaveText('3 validation errors found');
+  await result(page).getByText('Result context', { exact: true }).click();
+  await expect(result(page).getByText('Saved workflow', { exact: true })).toBeVisible();
+});
 test('agent loop advances without a human repair handoff', async ({ page }) => {
   await page.goto('/lab.html');
   await expect(result(page).getByRole('status')).toHaveText('3 validation errors found');

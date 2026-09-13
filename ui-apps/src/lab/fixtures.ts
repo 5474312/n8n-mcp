@@ -6,6 +6,8 @@ export interface Scenario {
   result?: Parameters<AppBridge['sendToolResult']>[0];
   lifecycle?: 'pending' | 'cancelled' | 'late-result';
   agentQuestion?: string;
+  omitToolInfo?: boolean;
+  hostDiagnostic?: boolean;
 }
 const response = (data: Record<string, unknown>) => ({ content: [{ type: 'text' as const, text: JSON.stringify(data) }] });
 const workflow = { id: 'demo-onboarding', name: 'Customer onboarding', active: false, nodeCount: 4 };
@@ -51,3 +53,10 @@ export const scenarios: Scenario[] = [
 ];
 export const sequence = ['created', 'invalid', 'preview', 'updated', 'valid', 'triggered', 'executed'];
 for (const fixture of hostFixtures) scenarios.push({ ...fixture, app: fixture.app as Scenario['app'], result: response(fixture.data) });
+
+// Exercise response identity without optional host context for every tool shape.
+for (const scenario of [...scenarios].filter(s => s.result && !s.lifecycle)) {
+  scenarios.push({ ...scenario, id: `${scenario.id}-no-tool-info`, label: `${scenario.label} · no host toolInfo`, omitToolInfo: true,
+    result: { ...scenario.result!, _meta: { 'n8n-mcp/toolName': scenario.tool } } });
+}
+scenarios.push({ ...scenarios[0], id: 'recoverable-host-error', label: 'Host diagnostic followed by a valid result', hostDiagnostic: true });

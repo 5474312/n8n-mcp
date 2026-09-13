@@ -60,6 +60,7 @@ describe('validation contracts', () => {
   });
   it('preserves unknown counts, single-node identity and absent descriptions', () => {
     const m = validationModel({ valid: false, summary: { errorCount: 2 }, warnings: [{ nodeName: 'Only node', message: 'Warning' }], suggestions: ['Useful', 42] }, null, null);
+    expect(m.scope).toBe('Scope not reported');
     expect(m.errorCount).toBe(2); expect(m.errors).toEqual([]); expect(m.warnings[0].node).toBe('Only node'); expect(m.suggestions).toEqual(['Useful']);
   });
 });

@@ -46,7 +46,9 @@ npm --prefix ui-apps run test:browser
 
 `ui:check` runs UI TypeScript, component/contract tests and all five builds. Browser tests exercise the real bridge, agent-sequence playback, malformed/cancelled/error states, host theme changes, keyboard details, 320px embeds and accessibility. Run the protocol smoke before browser tests. CI installs Chromium and runs these checks on PRs. UI tests are excluded from the root Vitest configuration because they have their own DOM and browser environments. No test retries are enabled.
 
-The UI contract adapters require a recognizable result. `structuredContent` is preferred; text JSON remains supported. Protocol errors, unsuccessful validation requests and malformed data cannot become a passing verdict. Each invocation has pending, ready, error and cancelled states. Terminal results are snapshots; a new complete tool input explicitly resets the state. Duplicate/late results after completion or cancellation are ignored. Hosts must preserve call ordering: the Apps notifications do not provide enough identity to distinguish a late result from a previous invocation after a new input. Do not reuse a card for concurrent calls.
+The UI contract adapters require a recognizable result. `structuredContent` is preferred; text JSON remains supported. Tool errors, initialization failures, unsuccessful validation requests and malformed data cannot become a passing verdict. Recoverable SDK diagnostics show a host communication notice while awaiting the outcome; a later valid result replaces that notice. Each invocation has pending, ready, error and cancelled states. Terminal results are snapshots; a new complete tool input explicitly resets the state. Duplicate/late results after completion or cancellation are ignored. Hosts must preserve call ordering: the Apps notifications do not provide enough identity to distinguish a late result from a previous invocation after a new input. Do not reuse a card for concurrent calls.
+
+Loaded UI tools attach their identity in response `_meta['n8n-mcp/toolName']`. Cards prefer this identity and fall back to optional host `toolInfo` for older servers. Hosts must forward response metadata when they omit `toolInfo`; if neither is present, operation receipts retain an unknown outcome and validation scope is not reported. Public content and structured result schemas are unchanged.
 
 Receipt labels use explicit evidence: `saved` for partial updates, `preview` for autofix, the returned validation verdict and operation count for simulation, and the official pinned-test result for confirmed execution. Arbitrary public webhook response fields are never interpreted as execution success. Unrecognized operation shapes produce an unknown outcome. There are no mutation, retry or send-to-chat buttons.
 
@@ -56,9 +58,10 @@ Receipt labels use explicit evidence: `saved` for partial updates, `preview` for
 2. Expand an error and the operation log. Confirm that subject identity and context remain available, long descriptions wrap, and tool text is displayed literally.
 3. Check preview, validation-only update, partial save and failed save. The title must distinguish proposed changes from persistence.
 4. Check pending, cancellation, late-result and API-error scenarios. No missing result may look like a passed check or a completed repair.
-5. Load the protocol snapshot and the operation bundle, and verify both actual built cards.
-6. Use keyboard navigation, light/dark appearance, a 320px embed, and 200% browser zoom. Confirm focus is visible, labels are readable and content does not overflow horizontally.
-7. In a target MCP Apps chat host, repeat the relevant journey after reloading the local MCP server. Record the host version and results below. Do not assume local lab success proves third-party host support.
+5. Select **Host diagnostic followed by a valid result**: the communication notice must give way to the saved workflow. Select scenarios ending in **no host toolInfo**: operation titles and saved-validation scope must stay correct.
+6. Load the protocol snapshot and the operation bundle, and verify both actual built cards.
+7. Use keyboard navigation, light/dark appearance, a 320px embed, and 200% browser zoom. Confirm focus is visible, labels are readable and content does not overflow horizontally.
+8. In a target MCP Apps chat host, repeat the relevant journey after reloading the local MCP server. Record the host version and results below. Do not assume local lab success proves third-party host support.
 
 ## Compatibility record
 
@@ -67,7 +70,7 @@ Receipt labels use explicit evidence: `saved` for partial updates, `preview` for
 | Local SDK AppBridge, source components | Manual lab and browser suite | Tested locally; see verification report |
 | Local SDK AppBridge, built resource from stdio MCP | Protocol smoke + browser snapshot | Tested locally; see verification report |
 | Claude.ai / Claude Desktop | Historical blank/collapsed behavior; original cause not established | Current release acceptance still requires an explicit real-host check |
-| ChatGPT web | Validation error and agent-corrected success rendered via an official tunnel | Validation verified on 2026-09-13; extended fixtures pending host acceptance |
+| ChatGPT web | Validation error and agent-corrected success rendered via an official tunnel | Validation and all 15 restored-view fixtures verified on 2026-09-13; see verification report |
 | Native ChatGPT desktop and other MCP Apps chat hosts | No direct runtime evidence | Unverified |
 
 All five views are registered on this feature branch. Template deployment uses operation-result. Execution results dispatch by the captured action (list/get/delete), while connection results distinguish status from diagnostics. Public MCP output schemas remain unchanged. Registration does not imply verified rendering in every host. UI bundles are generated with Vite and are not committed or edited by hand.

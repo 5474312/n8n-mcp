@@ -107,3 +107,18 @@ These screenshots show built resources rendered in the local SDK lab with synthe
 - Request filters preserve non-empty string arrays, including tags and node selections, plus pagination cursors and data-selection options. Unsupported workflow-name filtering is no longer presented as a public request option; false and zero values remain visible.
 - Root/UI typechecks, server/UI builds, 63 UI tests and six browser journeys passed. Adapter/reducer coverage is 100% lines/statements/functions and 96.48% branches. Both protocol smokes passed. The package smoke passed on a complete isolated artifact and correctly failed when workflow-list HTML was removed. Docker image builds require CI because the local Docker daemon is unavailable.
 - The accessibility review's opaque-frame premise was checked against installed AxeBuilder behavior: a deliberately missing-alt image inside the sandboxed local card produced an `image-alt` violation targeting the iframe child. The normal audit already enters that frame; no same-origin relaxation was added. Tests still only assert violations, so incomplete audit results remain a separate limitation.
+
+
+## Adversarial review fixes — 2026-09-13
+
+The simplifier review (Terra), independent code review (GPT-6), and successful Fable 5.1 xhigh adversarial consultation led to these changes:
+
+- Generic SDK diagnostics no longer terminate the invocation. A communication notice remains visible while waiting; a later valid result replaces it. Initialization failures, tool errors, malformed results and cancellation remain terminal, and completed snapshots remain immutable.
+- Loaded UI tools attach `n8n-mcp/toolName` in response metadata. Cards use it before optional host `toolInfo`, preserving operation labels and saved-validation scope when host context omits tool identity. With neither identity source, validation scope is explicitly unreported. Public content and structured schemas are unchanged; hosts still need to forward response metadata or tool context.
+- Shared fact markup, explicit inspection-model selection and duration guards remove duplication and nested conditions without changing receipt semantics.
+- Root/UI typechecks, server/all five UI builds, 66 UI tests and 87 focused server tests passed. UI model/reducer coverage remains 100% lines, statements and functions. Real stdio smoke verifies response identity and all five built resources; fixture smoke verifies 15 synthetic cases and rejects invalid arguments.
+- All eight Chromium journeys passed, including real SDK recovery after an unknown progress token and all seven operation tools without host `toolInfo`. The new warning test initially selected two status elements; its selector now targets the main outcome. No retries or timeout relaxations were introduced.
+- The focused root test command initially applied whole-repository coverage thresholds to a subset; all tests passed but the global coverage gate failed. Focused verification was then run with coverage disabled. The previous full unit coverage results above remain the full-suite evidence; this delta awaits its own CI run.
+- A final independent review of this delta found no actionable correctness regressions. All executed CI checks for the preceding `6129d41c` commit passed, including the full test job and Docker builds for AMD64, ARM64 and Railway. These earlier CI results do not cover the new review fixes.
+
+This follow-up was tested locally through the real SDK bridge. It does not constitute a new ChatGPT web/native or Claude acceptance run. Restart the local fixture server/tunnel after rebuilding before checking the changed behavior in a chat host.
