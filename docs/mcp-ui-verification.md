@@ -131,3 +131,14 @@ Copilot identified that the supported local npm preparation script omitted UI as
 Both preparation/archive checks passed locally, along with TypeScript, shell/YAML syntax, four bin-consistency tests and all 26 inspection-model tests. A negative test removed UI from the staged files whitelist; the tarball smoke correctly rejected the resulting package. The review's suppressed invalid-URL claim was checked against the source: the fixture contains a valid synthetic HTTPS URL and the credential/path-redaction assertions pass, so it required no change. A separate packaging reviewer identified the quick-script omission and confirmed the extracted registry resolves the correct runtime paths.
 
 All executed CI checks for the preceding `70a1eb15` commit passed. The packaging fix has its own CI run; these earlier results do not cover it.
+
+
+## Failure-response review fixes — 2026-09-13
+
+The next Copilot review identified two failure-path gaps. Loaded built-in UI tools now include identity metadata in disabled-tool, disabled-operation and execution-error responses as well as normal results. Additional host tools retain their own response format. The result reducer captures identity before decoding, and error cards expose optional result context even when host `toolInfo` is absent. The fixture server mirrors this behavior.
+
+Template deployment now marks non-throwing autofix failure envelopes as `autoFixStatus: failed` and adds a warning to the receipt message, while retaining the successfully saved workflow. A handler regression test uses the real nested autofix call with a mocked post-save read failure; a second test confirms explicitly disabled autofix remains `skipped`.
+
+The existing URL-redaction test already used valid HTTPS. Its fixture now constructs the URL and assigns synthetic credentials separately, making its scheme explicit while preserving credential, path and query-redaction assertions.
+
+Root/UI typechecks, server/all five UI builds, 316 focused server tests, 67 UI tests and eight Chromium journeys passed. Adapter/reducer coverage remains 100% lines/statements/functions and 96.51% branches. Real stdio smoke also confirms identity on an invalid-argument error; all 15 synthetic fixture cases and invalid-argument checks pass. Browser coverage includes an error result with no host `toolInfo` and keyboard-accessible tool context. These changes have not yet been retested in ChatGPT; restart the local server/tunnel before doing so. All executed CI checks for the preceding `b4887c64` commit passed; this delta has its own CI run.

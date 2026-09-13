@@ -860,6 +860,10 @@ export class N8NDocumentationMCPServer {
     // Handle tool execution
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
+      const isAdditionalTool = this.additionalToolsByName.has(name);
+      const resultMeta = !isAdditionalTool && UIAppRegistry.getAppForTool(name)?.html
+        ? { _meta: { 'n8n-mcp/toolName': name } }
+        : {};
       
       // SECURITY (GHSA-wg4g-395p-mqv3): log metadata only, not raw arg values.
       logger.info('Tool call received', {
@@ -874,6 +878,7 @@ export class N8NDocumentationMCPServer {
       if (disabledTools.has(name)) {
         logger.warn(`Attempted to call disabled tool: ${name}`);
         return {
+          ...resultMeta,
           content: [{
             type: 'text',
             text: JSON.stringify({
@@ -964,6 +969,7 @@ export class N8NDocumentationMCPServer {
           if (requestedOp && disabledOpsForTool.has(String(requestedOp).toLowerCase())) {
             logger.warn(`Attempted to call disabled operation: ${name}.${requestedOp}`);
             return {
+              ...resultMeta,
               content: [{
                 type: 'text',
                 text: JSON.stringify({
@@ -979,8 +985,6 @@ export class N8NDocumentationMCPServer {
           }
         }
       }
-
-      const isAdditionalTool = this.additionalToolsByName.has(name);
 
       try {
         // SECURITY (GHSA-wg4g-395p-mqv3): log metadata only, not raw arg values.
@@ -1036,6 +1040,7 @@ export class N8NDocumentationMCPServer {
         
         // Build MCP response with strict schema compliance
         const mcpResponse: any = {
+          ...resultMeta,
           content: [
             {
               type: 'text' as const,
@@ -1049,10 +1054,6 @@ export class N8NDocumentationMCPServer {
           mcpResponse.structuredContent = structuredContent;
         }
 
-        // Response identity remains available when the host omits optional toolInfo.
-        if (UIAppRegistry.getAppForTool(name)?.html) {
-          mcpResponse._meta = { 'n8n-mcp/toolName': name };
-        }
         return mcpResponse;
       } catch (error) {
         logger.error(`Error executing tool ${name}`, error);
@@ -1118,6 +1119,7 @@ export class N8NDocumentationMCPServer {
         } catch { /* ignore diagnostic errors */ }
 
         return {
+          ...resultMeta,
           content: [
             {
               type: 'text',

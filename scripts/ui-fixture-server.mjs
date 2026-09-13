@@ -36,12 +36,13 @@ server.setRequestHandler(ReadResourceRequestSchema, async ({ params }) => {
   return { contents: [{ uri: resource.uri, mimeType: resource.mimeType, text: resource.html }] };
 });
 server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
+  const resultMeta = tools.some(tool => tool.name === params.name) ? { _meta: { 'n8n-mcp/toolName': params.name } } : {};
   const f = fixtures.find(f => f.tool === params.name && f.id === params.arguments?.scenario);
   const keys = Object.keys(params.arguments ?? {}).filter(key => key !== 'scenario');
   if (!f || keys.length !== Object.keys(f.input).length || Object.entries(f.input).some(([key, value]) => params.arguments?.[key] !== value)) {
-    return { isError: true, content: [{ type: 'text', text: 'Unknown fixture or mismatched arguments. Use the exact scenario arguments in the tool description.' }] };
+    return { ...resultMeta, isError: true, content: [{ type: 'text', text: 'Unknown fixture or mismatched arguments. Use the exact scenario arguments in the tool description.' }] };
   }
   const data = { ...f.data, _uiTestFixture: true };
-  return { content: [{ type: 'text', text: JSON.stringify(data) }], structuredContent: data, _meta: { 'n8n-mcp/toolName': params.name } };
+  return { ...resultMeta, content: [{ type: 'text', text: JSON.stringify(data) }], structuredContent: data };
 });
 await server.connect(new StdioServerTransport());

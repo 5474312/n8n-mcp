@@ -11,6 +11,20 @@ vi.mock('../../../../src/utils/logger');
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
 describe('UI result identity on the MCP response', () => {
+  it.each(['disabled-tool', 'disabled-operation', 'thrown-error'] as const)('identifies a mapped tool on %s', async failure => {
+    vi.stubEnv('NODE_DB_PATH', ':memory:');
+    if (failure === 'disabled-tool') vi.stubEnv('DISABLED_TOOLS', 'n8n_executions');
+    if (failure === 'disabled-operation') vi.stubEnv('DISABLED_TOOL_OPERATIONS', 'n8n_executions:delete');
+    const server = new N8NDocumentationMCPServer();
+    const execute = vi.spyOn(server as any, 'executeTool').mockRejectedValue(new Error('Invalid input'));
+    const config = UI_APP_CONFIGS.find(config => config.toolPatterns.includes('n8n_executions'))!;
+    vi.spyOn(UIAppRegistry, 'getAppForTool').mockReturnValue({ config, html: '<html></html>' });
+    const handler = (server as any).server._requestHandlers.get('tools/call');
+    const response = await handler({ method: 'tools/call', params: { name: 'n8n_executions', arguments: { action: 'delete', id: 'demo' } } }, {});
+    expect(response.isError).toBe(true);
+    expect(response._meta).toEqual({ 'n8n-mcp/toolName': 'n8n_executions' });
+    if (failure !== 'thrown-error') expect(execute).not.toHaveBeenCalled();
+  });
   it.each(UI_APP_CONFIGS.flatMap(config => config.toolPatterns.map(name => ({ config, name }))))('identifies $name without modifying the public payload', async ({ config, name }) => {
     vi.stubEnv('NODE_DB_PATH', ':memory:');
     const server = new N8NDocumentationMCPServer();

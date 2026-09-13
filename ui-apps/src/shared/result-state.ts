@@ -52,10 +52,11 @@ export function reduceResult(state: ResultState, event: ResultEvent): ResultStat
   if (event.type === 'host-warning') return { ...state, hostWarning: event.error };
   if (event.type === 'cancel') return { ...state, phase: 'cancelled', data: null, error: event.reason ?? null };
   if (event.type === 'error') return { ...state, phase: 'error', data: null, error: event.error };
+  const toolName = text(event.result._meta?.['n8n-mcp/toolName']) ?? null;
   try {
     return { ...state, phase: 'ready', data: decodeResult(event.result), error: null, hostWarning: null,
-      toolName: text(event.result._meta?.['n8n-mcp/toolName']) ?? null, receivedAt: event.receivedAt };
+      toolName, receivedAt: event.receivedAt };
   } catch (error) {
-    return { ...state, phase: 'error', data: null, error: error instanceof Error ? error.message : 'Result unavailable', receivedAt: event.receivedAt };
+    return { ...state, phase: 'error', data: null, toolName, error: error instanceof Error ? error.message : 'Result unavailable', receivedAt: event.receivedAt };
   }
 }

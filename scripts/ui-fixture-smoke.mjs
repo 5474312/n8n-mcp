@@ -34,6 +34,7 @@ try {
     ]) {
       const rejected=await client.callTool({name:f.tool,arguments:arguments_});
       assert.equal(rejected.isError,true,`Expected exact argument rejection for ${f.id}`);
+      assert.equal(rejected._meta?.['n8n-mcp/toolName'],f.tool);
     }
   }
   console.log(`Fixture MCP smoke passed: ${fixtures.length} synthetic scenarios, 4 tools, exact built resources, and extra/missing/mismatched argument rejection. No n8n connection.`);

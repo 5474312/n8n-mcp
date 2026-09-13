@@ -58,6 +58,9 @@ try {
   const result = await client.callTool({ name: tool.name, arguments: input });
   assert(!result.isError, 'Validation must return a domain result');
   assert.equal(result._meta?.['n8n-mcp/toolName'], tool.name);
+  const rejected = await client.callTool({ name: 'validate_node', arguments: {} });
+  assert.equal(rejected.isError, true, 'Invalid arguments must return a tool error');
+  assert.equal(rejected._meta?.['n8n-mcp/toolName'], 'validate_node');
   const verdict = result.structuredContent ?? JSON.parse(result.content.find(item => item.type === 'text').text);
   assert.equal(typeof verdict.valid, 'boolean');
   const operation = {

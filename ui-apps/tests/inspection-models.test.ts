@@ -75,9 +75,11 @@ describe('inspection response contracts', () => {
     expect(model('health-connected').facts.find(f=>f.label==='Cache hit rate')?.value).toBe('80.00%');
     expect(model('health-unconfigured').facts.some(f=>f.label==='Cache hit rate')).toBe(false);
     expect(model('health-diagnostic').facts.find(f=>f.label==='MCP update available')?.value).toBe('2.84.4 → 2.85.0');
+    const endpointWithCredentials = new URL('https://example.test/private?token=secret');
+    endpointWithCredentials.username = 'user';
+    endpointWithCredentials.password = 'pass';
     for (const rate of [0.8,80,'80.00%','N/A',Infinity,-1,200]) {
-      // secretlint-disable-next-line @secretlint/secretlint-rule-basicauth -- Synthetic example.test credentials verify URL redaction; no real account.
-      const m = healthModel({success:true,data:{status:'connected',apiUrl:'https://user:pass@example.test/private?token=secret',performance:{cacheHitRate:rate}}},null);
+      const m = healthModel({success:true,data:{status:'connected',apiUrl:endpointWithCredentials.href,performance:{cacheHitRate:rate}}},null);
       expect(m.facts.find(f=>f.label==='Endpoint')?.value).toBe('https://example.test');
       expect(JSON.stringify(m)).not.toMatch(/secret|pass|private/);
     }

@@ -2,6 +2,15 @@ import { describe, it, expect } from 'vitest';
 import { decodeResult, initialResultState, reduceResult, count, object, text, type ResultEvent } from '../src/shared/result-state';
 const result = { content: [{ type: 'text', text: '{"valid":true}' }] };
 describe('MCP result boundary', () => {
+  it('retains response identity when the tool returns an error', () => {
+    const state = reduceResult(initialResultState, { type: 'result', result: {
+      isError: true, _meta: { 'n8n-mcp/toolName': 'n8n_executions' },
+      content: [{ type: 'text', text: 'Invalid execution input' }],
+    }, receivedAt: '2026-09-13T12:00:00Z' });
+    expect(state.phase).toBe('error');
+    expect(state.toolName).toBe('n8n_executions');
+    expect(state.data).toBeNull();
+  });
   it('accepts the actual outcome after a recoverable host diagnostic', () => {
     const pending = reduceResult(initialResultState, { type: 'input', input: {} });
     const warned = reduceResult(pending, { type: 'host-warning', error: 'Unknown progress token' });

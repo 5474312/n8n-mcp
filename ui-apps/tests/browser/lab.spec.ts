@@ -23,6 +23,10 @@ test('response identity works without optional host toolInfo across operation sh
   await expect(result(page).getByRole('status')).toHaveText('3 validation errors found');
   await result(page).getByText('Result context', { exact: true }).click();
   await expect(result(page).getByText('Saved workflow', { exact: true })).toBeVisible();
+  await page.getByRole('combobox', { name: 'Scenario', exact: true }).selectOption('protocol-error-no-tool-info');
+  await expect(result(page).getByRole('status')).toHaveText('Result unavailable');
+  await result(page).getByText('Result context', { exact: true }).click();
+  await expect(result(page).getByText('validate_workflow', { exact: true })).toBeVisible();
 });
 test('agent loop advances without a human repair handoff', async ({ page }) => {
   await page.goto('/lab.html');
