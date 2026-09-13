@@ -32,7 +32,7 @@ The implementation review used two Terra workers for operation contracts and the
 - `npm run test:e2e` could not run: this checkout contains no tests in its configured `tests/e2e` directory. The new UI browser suite ran separately and passed.
 - Real Claude.ai/Desktop and the native ChatGPT desktop application remain unverified. ChatGPT web validation-card results are recorded below. Extended registration and its host acceptance are covered below.
 - 200% browser zoom remains a manual acceptance item; the in-app browser did not expose an observable zoom change through the attempted keyboard shortcut. Narrow-layout and keyboard checks passed separately.
-- CI steps were added and their commands exercised locally; no remote CI run, push, release or deployment was performed.
+- At the end of the initial phase, CI steps had been exercised locally only. Subsequent PR publication and remote CI results are recorded below; no release or live workflow deployment was performed.
 
 Tests changed the bundled database during initialization. Its original tracked contents were restored after the suites completed; no generated database or UI bundle is included in the patch.
 
@@ -64,7 +64,24 @@ Verification completed for this extension:
 - Six Chromium journeys passed, including all restored views at 320px, both host themes, accessibility, keyboard expansion and pagination scope. The first attempt at the two new journeys failed because the test selected the implicit label instead of the combobox accessible name; correcting the selector resolved the failures. No retries or relaxed timeouts were added.
 - Two Terra reading workers reviewed contracts and legacy UX; one also reviewed the implementation. Follow-up findings led to an in-card synthetic notice and an explicit build-before-fixture command. Fable was consulted once successfully and supported the controlled branch/test approach with visible snapshot context and action-specific rendering; those recommendations were applied.
 
-Pending: extended fixture rendering in ChatGPT after the test MCP connection is restarted and refreshed. Native ChatGPT desktop and Claude rendering remain unverified. The historical Claude collapse cause has not been established; synthetic ChatGPT success must not be described as a Claude fix. No release or live workflow deployment was performed.
+Extended fixture rendering in ChatGPT passed as recorded below. Native ChatGPT desktop and Claude rendering remain unverified. The historical Claude collapse cause has not been established; synthetic ChatGPT success must not be described as a Claude fix. No release or live workflow deployment was performed.
+
+## Restored views in ChatGPT web — 2026-09-13
+
+After restarting the official tunnel with the isolated fixture server and refreshing the development plugin, ChatGPT discovered four synthetic tools and their four UI templates. All 15 scenarios were called in a single conversation and inspected in the built-in browser using the production HTML resources from commit `032d66b9`.
+
+| View | Scenarios and observed results |
+|---|---|
+| Workflow list | Empty, request error and six-row page rendered. Active, inactive, archived and unknown activation remained distinct. Expanding the sixth row, row details and request filters worked; the page retained its additional-results notice. |
+| Executions | Empty, six-row list, failed execution detail, simulated deletion and request error rendered. Running/waiting statuses were qualified by check time. Expanding the sixth row exposed the unknown status; failure detail showed the synthetic 503 message, execution ID, duration and mode. |
+| Connection | Status success, unconfigured diagnostic, configured diagnostic and request error rendered. Details showed the example endpoint, versions, check duration, cache percentage and update availability where supplied. |
+| Template receipt | Saved, saved with setup issues and request error rendered. The setup card showed the remaining credential count and failed automatic fixes without losing the saved outcome; optional details exposed the fixture's credential requirements and warning. Neither saved card claimed execution success. |
+
+Each card displayed the in-card synthetic-test notice. The inspection views showed snapshot timestamps and did not present themselves as live monitors. Earlier workflow and execution cards retained their distinct results after later calls. Keyboard disclosure interaction and visual inspection passed. A coordinate-based iframe click was rejected by browser automation because of fractional coordinates; semantic keyboard activation succeeded. Off-screen template cards loaded when scrolled into view.
+
+This is host-rendering evidence for ChatGPT web in development mode, using fixed examples with no live n8n reads, writes, execution or deletion. It does not establish native desktop/Claude compatibility, live management integration, 200% zoom acceptance or app-submission CSP/domain readiness. Host screenshots containing account UI were not added to the public repository; the synthetic local screenshots below remain the public visual references.
+
+Draft [PR #1104](https://github.com/czlonkowski/n8n-mcp/pull/1104) contains the implementation. All executed remote checks for `032d66b9` passed, including the test job, TypeScript/Actions CodeQL, secretlint, fresh-install check, CommonJS runtime and Docker builds. Release creation and the conditional image test were skipped. The unrelated local `data/nodes.db` modification remains excluded.
 
 
 ## Screenshots
