@@ -25,5 +25,15 @@ try {
   }
   const invalid=await client.callTool({name:'n8n_executions',arguments:{scenario:'execution-deleted',action:'list'}});
   assert.equal(invalid.isError,true);
-  console.log(`Fixture MCP smoke passed: ${fixtures.length} synthetic scenarios, 4 tools, exact built resources, and mismatched-action rejection. No n8n connection.`);
+  for (const f of fixtures) {
+    for (const arguments_ of [
+      { scenario:f.id,...f.input,unexpected:'extra' },
+      { scenario:f.id,...f.input,...(Object.hasOwn(f.input,'action') ? {limit:99} : {action:'delete'}) },
+      { scenario:f.id,...Object.fromEntries(Object.entries(f.input).slice(1)) },
+    ]) {
+      const rejected=await client.callTool({name:f.tool,arguments:arguments_});
+      assert.equal(rejected.isError,true,`Expected exact argument rejection for ${f.id}`);
+    }
+  }
+  console.log(`Fixture MCP smoke passed: ${fixtures.length} synthetic scenarios, 4 tools, exact built resources, and extra/missing/mismatched argument rejection. No n8n connection.`);
 } finally {clearTimeout(deadline);await client.close();await transport.close();}

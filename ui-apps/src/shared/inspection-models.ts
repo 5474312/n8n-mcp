@@ -29,6 +29,9 @@ export function durationLabel(start: unknown, end: unknown): string {
 function filters(input: JsonObject | null, names: string[]): Fact[] {
   return names.flatMap(name => {
     const value = input?.[name];
+    if (Array.isArray(value)) {
+      return value.length && value.every(item => text(item)) ? [{ label: name, value: JSON.stringify(value) }] : [];
+    }
     return typeof value === 'boolean' || typeof value === 'number' || text(value) ? [{ label: name, value: String(value) }] : [];
   });
 }
@@ -38,7 +41,7 @@ function records(value: unknown): JsonObject[] | null {
 }
 export function workflowListModel(raw: JsonObject, input: JsonObject | null): InspectionModel {
   const m = base();
-  m.filters = filters(input, ['name', 'active', 'tags', 'projectId', 'limit']);
+  m.filters = filters(input, ['active', 'tags', 'projectId', 'limit', 'cursor', 'excludePinnedData']);
   if (failure(raw, m)) return m;
   const d = object(raw.data), rows = records(d?.workflows);
   if (!rows || rows.some(row => !text(row.name))) return m;
@@ -80,7 +83,7 @@ function executionRow(d: JsonObject): InspectionRow {
 }
 export function executionModel(raw: JsonObject, input: JsonObject | null): InspectionModel {
   const m = base();
-  m.filters = filters(input, ['workflowId', 'projectId', 'status', 'limit', 'mode']);
+  m.filters = filters(input, ['workflowId', 'projectId', 'status', 'limit', 'cursor', 'includeData', 'mode', 'nodeNames', 'itemsLimit', 'includeInputData', 'errorItemsLimit', 'includeStackTrace', 'includeExecutionPath', 'fetchWorkflow']);
   if (failure(raw, m)) return m;
   // The server intentionally treats get without an ID as list.
   const action = input?.action === 'get' && !text(input.id) ? 'list' : text(input?.action) ?? 'list';

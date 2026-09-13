@@ -37,7 +37,8 @@ server.setRequestHandler(ReadResourceRequestSchema, async ({ params }) => {
 });
 server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
   const f = fixtures.find(f => f.tool === params.name && f.id === params.arguments?.scenario);
-  if (!f || Object.entries(f.input).some(([key, value]) => params.arguments?.[key] !== value)) {
+  const keys = Object.keys(params.arguments ?? {}).filter(key => key !== 'scenario');
+  if (!f || keys.length !== Object.keys(f.input).length || Object.entries(f.input).some(([key, value]) => params.arguments?.[key] !== value)) {
     return { isError: true, content: [{ type: 'text', text: 'Unknown fixture or mismatched arguments. Use the exact scenario arguments in the tool description.' }] };
   }
   const data = { ...f.data, _uiTestFixture: true };

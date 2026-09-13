@@ -99,3 +99,11 @@ These screenshots show built resources rendered in the local SDK lab with synthe
 | Execution detail | Connection diagnostic |
 |---|---|
 | ![Execution failure](images/mcp-ui/execution-detail.png) | ![Unconfigured connection](images/mcp-ui/health-unconfigured.png) |
+
+## PR review follow-up — 2026-09-13
+
+- Both production Dockerfiles now build UI assets from the UI lockfile in a separate stage and copy the five HTML resources into the runtime. A build-time package smoke checks HTML availability, the 750 kB per-resource budget and all 13 tool metadata mappings. Local UI build output and dependency folders are excluded from the Docker context.
+- Fixture calls now reject extra argument keys as well as missing or mismatched values. Protocol smoke covers 15 accepted scenarios, 45 extra/missing-argument cases and the existing mismatched-action case.
+- Request filters preserve non-empty string arrays, including tags and node selections, plus pagination cursors and data-selection options. Unsupported workflow-name filtering is no longer presented as a public request option; false and zero values remain visible.
+- Root/UI typechecks, server/UI builds, 63 UI tests and six browser journeys passed. Adapter/reducer coverage is 100% lines/statements/functions and 96.48% branches. Both protocol smokes passed. The package smoke passed on a complete isolated artifact and correctly failed when workflow-list HTML was removed. Docker image builds require CI because the local Docker daemon is unavailable.
+- The accessibility review's opaque-frame premise was checked against installed AxeBuilder behavior: a deliberately missing-alt image inside the sandboxed local card produced an `image-alt` violation targeting the iframe child. The normal audit already enters that frame; no same-origin relaxation was added. Tests still only assert violations, so incomplete audit results remain a separate limitation.

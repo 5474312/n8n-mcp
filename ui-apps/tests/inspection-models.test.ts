@@ -9,6 +9,20 @@ const model = (id: string) => {
   return f.app === 'workflow-list' ? workflowListModel(f.data, f.input) : f.app === 'execution-history' ? executionModel(f.data, f.input) : healthModel(f.data, f.input);
 };
 describe('inspection response contracts', () => {
+  it('preserves workflow tags, page cursor and false-valued request options', () => {
+    const input = { active:false, tags:['Demo', 'Sales, Europe'], projectId:'demo-project', limit:6, cursor:'demo-next', excludePinnedData:false };
+    const filters = workflowListModel(sample('workflow-page').data, { ...input, name:'not-a-public-filter' }).filters;
+    expect(Object.fromEntries(filters.map(f => [f.label, f.value]))).toEqual({ ...input, active:'false', tags:JSON.stringify(input.tags), limit:'6', excludePinnedData:'false' });
+    for (const tags of [[], [''], ['Demo', 4], {name:'Demo'}]) {
+      expect(workflowListModel(sample('workflow-empty').data, {tags}).filters).toEqual([]);
+    }
+  });
+  it('preserves execution pagination and detail selection in request filters', () => {
+    const list = executionModel(sample('execution-page').data, {action:'list', cursor:'demo-next', includeData:false});
+    expect(list.filters).toEqual([{label:'cursor',value:'demo-next'},{label:'includeData',value:'false'}]);
+    const detail = executionModel(sample('execution-detail').data, {action:'get', id:'demo-ex-0', mode:'filtered', nodeNames:['Demo service'], itemsLimit:0, includeInputData:false});
+    expect(detail.filters).toEqual([{label:'mode',value:'filtered'},{label:'nodeNames',value:'["Demo service"]'},{label:'itemsLimit',value:'0'},{label:'includeInputData',value:'false'}]);
+  });
   it.each([
     ['workflow-page', '6 workflows returned'], ['workflow-empty', 'No matching workflows'], ['workflow-error', 'Request could not complete'],
     ['execution-page', '6 executions returned'], ['execution-empty', 'No matching executions'], ['execution-detail', 'Failed'],
