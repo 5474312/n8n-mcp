@@ -1,9 +1,11 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 import path from 'path';
 
 export default defineConfig({
   test: {
     globals: true,
+    // UI has its own DOM and browser configuration.
+    exclude: [...configDefaults.exclude, 'ui-apps/**'],
     environment: 'node',
     // Only include global-setup.ts, remove msw-setup.ts from global setup
     setupFiles: ['./tests/setup/global-setup.ts'],
