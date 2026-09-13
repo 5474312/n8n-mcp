@@ -142,3 +142,10 @@ Template deployment now marks non-throwing autofix failure envelopes as `autoFix
 The existing URL-redaction test already used valid HTTPS. Its fixture now constructs the URL and assigns synthetic credentials separately, making its scheme explicit while preserving credential, path and query-redaction assertions.
 
 Root/UI typechecks, server/all five UI builds, 316 focused server tests, 67 UI tests and eight Chromium journeys passed. Adapter/reducer coverage remains 100% lines/statements/functions and 96.51% branches. Real stdio smoke also confirms identity on an invalid-argument error; all 15 synthetic fixture cases and invalid-argument checks pass. Browser coverage includes an error result with no host `toolInfo` and keyboard-accessible tool context. These changes have not yet been retested in ChatGPT; restart the local server/tunnel before doing so. All executed CI checks for the preceding `b4887c64` commit passed; this delta has its own CI run.
+
+
+## CI timing-test follow-up — 2026-09-14
+
+CI for `60531daf` passed 6,493 unit tests but failed the pre-existing auth timing test: median runtime variance was 0.605 against a 0.5 threshold under runner load. The test now deterministically verifies that matching tokens and mismatches at either end each invoke the real `crypto.timingSafeEqual` exactly once with the complete UTF-8 buffers. Existing token-result and edge-case assertions remain. Production authentication code is unchanged; no retries or timing-threshold increases were added. This guards use of the crypto primitive and does not claim to prove end-to-end timing behavior from a unit test.
+
+TypeScript and all 13 focused auth tests passed. An initial full-suite sandbox run stopped making progress and was interrupted; the CI-mode run outside the sandbox then passed all 194 files: 6,496 tests passed, 35 skipped, with 85.34% line/statement, 86.45% branch and 85.26% function coverage. No retry setting or coverage threshold was changed.
