@@ -149,3 +149,13 @@ Root/UI typechecks, server/all five UI builds, 316 focused server tests, 67 UI t
 CI for `60531daf` passed 6,493 unit tests but failed the pre-existing auth timing test: median runtime variance was 0.605 against a 0.5 threshold under runner load. The test now deterministically verifies that matching tokens and mismatches at either end each invoke the real `crypto.timingSafeEqual` exactly once with the complete UTF-8 buffers. Existing token-result and edge-case assertions remain. Production authentication code is unchanged; no retries or timing-threshold increases were added. This guards use of the crypto primitive and does not claim to prove end-to-end timing behavior from a unit test.
 
 TypeScript and all 13 focused auth tests passed. An initial full-suite sandbox run stopped making progress and was interrupted; the CI-mode run outside the sandbox then passed all 194 files: 6,496 tests passed, 35 skipped, with 85.34% line/statement, 86.45% branch and 85.26% function coverage. No retry setting or coverage threshold was changed.
+
+## Validation context and build prerequisite review — 2026-09-14
+
+Copilot's review of `60531daf` identified missing tool identity and receipt time on domain-level validation failures and malformed verdicts. These cards now retain the optional result-context disclosure. Two regression assertions failed before the change and pass afterward; the real SDK browser journey also verifies an API failure with response metadata and no host `toolInfo`.
+
+The reported inspection-card crash was not reproducible: inspection adapters return an unavailable model for malformed collections rather than throwing. Five new render cases cover malformed workflow/execution collections and missing connection evidence; all already passed against unchanged inspection code and preserve tool identity and receipt time. No speculative exception handler was added.
+
+A bounded Terra audit confirmed the separate build prerequisite. The private UI package and lockfile now declare Node `^20.19.0 || >=22.12.0`, matching the locked Vite toolchain. Contributor and UI instructions explicitly apply that range to UI development, `build:all`, and both npm preparation paths. The prebuilt server's Node `>=20.0.0` runtime declaration is unchanged.
+
+Root/UI typechecks, all 73 UI tests, all five production UI builds, the real stdio resource smoke and all eight Chromium journeys passed. Adapter/reducer coverage remains 100% lines/statements/functions and 96.51% branches. This delta has not been retested in a third-party chat host; its remote CI is pending.

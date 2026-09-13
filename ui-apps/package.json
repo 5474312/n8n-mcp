@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
   "scripts": {
     "dev": "vite --config vite.lab.config.ts --host 127.0.0.1",
     "build": "APP_NAME=operation-result vite build && APP_NAME=validation-summary vite build && APP_NAME=workflow-list vite build && APP_NAME=execution-history vite build && APP_NAME=health-dashboard vite build",

@@ -4,7 +4,9 @@ The agent builds and repairs workflows. The cards help the user follow the work 
 
 ## Local development
 
-Use a supported Node runtime (Node 22.12+ is recommended for the current Vite toolchain). Install root dependencies as usual, then:
+Building or developing the UI requires Node `^20.19.0 || >=22.12.0` (Node 22.12+ is recommended). This build prerequisite also applies to `npm run build:all`, `npm run prepare:publish`, and `bash scripts/publish-npm-quick.sh`, which build the UI assets. The published server ships prebuilt cards; its runtime requirement remains Node `>=20.0.0`.
+
+Install root dependencies as usual, then:
 
 ```sh
 npm --prefix ui-apps ci

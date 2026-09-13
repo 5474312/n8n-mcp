@@ -37,7 +37,9 @@ export default function App() {
     catch (error) { issue = error instanceof Error ? error.message : 'Validation result unavailable'; }
   }
   return <ResultBoundary kind="Validation" state={state}>
-    {issue ? <ResultCard kind="Validation" title="Validation unavailable" summary={issue} tone="error" /> : model && <ResultCard kind="Validation"
+    {issue ? <ResultCard kind="Validation" title="Validation unavailable" summary={issue} tone="error">
+      <ResultContext receivedAt={state.receivedAt} toolName={state.toolName} />
+    </ResultCard> : model && <ResultCard kind="Validation"
       title={model.valid ? 'No validation errors found' : model.errorCount ? `${model.errorCount} validation error${model.errorCount === 1 ? '' : 's'} found` : 'Validation did not pass'}
       subject={model.subject} tone={model.valid ? model.warningCount ? 'warning' : 'success' : 'error'}
       summary={model.valid ? model.warningCount ? `${model.warningCount} warning${model.warningCount === 1 ? '' : 's'} reported.` : 'This check passed. Execution has not been verified by this check.' : 'This check found issues in the workflow configuration.'}>
