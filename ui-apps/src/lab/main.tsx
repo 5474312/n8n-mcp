@@ -6,7 +6,7 @@ import './style.css';
 
 function Frame({ scenario, html, onLog }: { scenario: Scenario; html?: string; onLog: (line: string) => void }) {
   const ref = useRef<HTMLIFrameElement>(null);
-  const [height, setHeight] = useState(240);
+  const [height, setHeight] = useState(70);
   useEffect(() => {
     const iframe = ref.current!;
     let disposed = false;
@@ -16,7 +16,7 @@ function Frame({ scenario, html, onLog }: { scenario: Scenario; html?: string; o
       hostContext: { theme: scheme.matches ? 'dark' : 'light', ...(scenario.omitToolInfo ? {} : { toolInfo: { tool: { name: scenario.tool, inputSchema: { type: 'object' as const } } } }) },
     });
     const log = (line: string) => { if (!disposed) onLog(line); };
-    bridge.onsizechange = size => { if (!disposed && typeof size.height === 'number') setHeight(Math.min(1600, Math.max(180, size.height))); };
+    bridge.onsizechange = size => { if (!disposed && typeof size.height === 'number') setHeight(Math.min(1600, Math.max(1, size.height))); };
     bridge.onerror = error => log(`Bridge error: ${error.message}`);
     bridge.oninitialized = async () => {
       if (disposed) return;
