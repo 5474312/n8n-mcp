@@ -5,6 +5,6 @@ export default defineConfig({
   test: {
     environment: 'jsdom', include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'], exclude: ['tests/browser/**'],
     globals: true, setupFiles: ['tests/setup.ts'], retry: 0,
-    coverage: { provider: 'v8', include: ['src/shared/result-state.ts', 'src/shared/validation-model.ts', 'src/shared/operation-model.ts', 'src/shared/inspection-models.ts'], reporter: ['text', 'lcov'], thresholds: { lines: 85, statements: 85, functions: 85, branches: 75 } },
+    coverage: { provider: 'v8', include: ['src/shared/result-state.ts', 'src/shared/hooks/useCardExpansion.ts', 'src/shared/validation-model.ts', 'src/shared/operation-model.ts', 'src/shared/inspection-models.ts'], reporter: ['text', 'lcov'], thresholds: { lines: 85, statements: 85, functions: 85, branches: 75 } },
   },
 });

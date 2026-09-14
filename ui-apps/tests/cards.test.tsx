@@ -16,6 +16,7 @@ describe('agent supervision cards', () => {
   it('keeps details optional and never requires a user repair handoff', () => {
     fixture('invalid'); render(<Validation />);
     expect(screen.getByRole('status').textContent).toBe('3 validation errors found');
+    fireEvent.click(screen.getByRole('button', { expanded: false }));
     expect(screen.queryByText(/copy request|review repair|needs your attention/i)).toBeNull();
     const disclosure = screen.getByText('Validation details');
     expect(disclosure.closest('details')?.open).toBe(false);
@@ -27,6 +28,7 @@ describe('agent supervision cards', () => {
   it('escapes tool-provided text and exposes complete workflow identity', () => {
     fixture('created'); mockState.value.data = { success: true, data: { id: 'full-workflow-id', name: '<img src=x onerror=alert(1)>' } };
     const { container } = render(<Operation />);
+    fireEvent.click(screen.getByRole('button', { expanded: false }));
     expect(screen.getByRole('heading', { level: 1 }).textContent).toContain('<img');
     expect(container.querySelector('img')).toBeNull(); expect(screen.getByText('full-workflow-id')).toBeTruthy();
   });
@@ -63,6 +65,16 @@ describe('agent supervision cards', () => {
   it('preserves a completed card after the host disconnects', () => {
     fixture('created'); Object.assign(mockState.value, { isConnected: false, error: 'Late disconnect' }); render(<Operation />);
     expect(screen.getByRole('status').textContent).toBe('Workflow created');
+  });
+  it('keeps manual expansion across pending-to-result without host persistence', () => {
+    fixture('valid'); mockState.value.phase = 'pending'; mockState.value.data = null;
+    const view = render(<Validation />);
+    fireEvent.click(screen.getByRole('button', { expanded: false }));
+    fixture('valid'); view.rerender(<Validation />);
+    expect(screen.getByRole('button', { expanded: true })).toBeTruthy();
+    expect(screen.getByRole('heading')).toBeTruthy();
+    expect(view.container.querySelectorAll('.result-card')).toHaveLength(1);
+    expect(screen.getByRole('status').closest('button')).toBeNull();
   });
   it.each([
     [{ phase: 'cancelled', error: 'Cancelled' }, 'Tool call cancelled'],

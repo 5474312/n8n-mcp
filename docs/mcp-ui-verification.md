@@ -159,3 +159,23 @@ The reported inspection-card crash was not reproducible: inspection adapters ret
 A bounded Terra audit confirmed the separate build prerequisite. The private UI package and lockfile now declare Node `^20.19.0 || >=22.12.0`, matching the locked Vite toolchain. Contributor and UI instructions explicitly apply that range to UI development, `build:all`, and both npm preparation paths. The prebuilt server's Node `>=20.0.0` runtime declaration is unchanged.
 
 Root/UI typechecks, all 73 UI tests, all five production UI builds, the real stdio resource smoke and all eight Chromium journeys passed. Adapter/reducer coverage remains 100% lines/statements/functions and 96.51% branches. This delta has not been retested in a third-party chat host; its remote CI is pending.
+
+## Collapsed result cards — 2026-09-14
+
+All five cards and their pending, cancelled, error and standalone states now start as one compact row. A native button expands the optional body with Enter, Space or a click. Compact outcome labels preserve preview, partial-save, setup-needed and failed-result distinctions; the full outcome is available in the expanded body and an external status live region. The button's accessible name comes from its visible text, with the full result supplied as its description. The lab removed its fixed 180px minimum so the real SDK resize notifications shrink the iframe after collapse.
+
+Expansion lives at the result boundary and survives pending-to-ready transitions without host extensions. Optional ChatGPT widget state stores a namespaced boolean in `privateContent`, preserves unrelated host fields and restores only the same rendered widget. Missing, malformed or throwing host capabilities fall back to local state. Late hydration cannot undo a local click, and batched toggles stay ordered. This is not a global preference for later cards or conversations.
+
+Validation: root/UI typechecks; server and all five UI builds; 88 UI tests; 6,496 root unit tests with 35 skipped and 85.34% line coverage. UI model/reducer/expansion coverage is 100% lines/functions, 99.69% statements and 96.63% branches. The real stdio smoke verifies exact built resources and the npm preparation/tarball smoke verifies all five packaged cards and 13 mappings without publishing. Browser coverage checks all five built resources, collapsed lifecycle states, keyboard expansion, iframe height growth/shrink, narrow light/dark views, unclipped partial/setup/error labels, and opaque-frame accessibility with a deliberate negative control.
+
+All 15 browser journeys are verified. After the final accessible-name change, 14 passed in the full run; one still expected the full outcome in the button name instead of its description. Its assertions now check the visible compact name and full description separately, and the focused scenario passed. No retry setting or timeout was relaxed. The initial UI typecheck also caught an ES2022 `Object.hasOwn` call; the implementation uses the existing compilation target's compatible own-property check.
+
+Three independent agents completed browser verification, simplification review and code review. The final code review found no material remaining issue. Fable 5.1 xhigh was consulted twice; its final verdict was ready for a draft PR after the live-region, local-state retention and toggle-order fixes. The visible-label/accessibility-name follow-up was also implemented and tested. The one-card-per-widget contract is structural; the speculative cross-widget state concern was withdrawn.
+
+The in-app browser connection timed out twice, so native ChatGPT/Claude rendering, same-widget restoration in a real chat host, and actual browser zoom remain unverified. The 320 CSS-pixel reflow checks approximate a 640px host at 200% zoom and are not native zoom acceptance. Refresh the fixture connection before checking these changes in a chat host. No live n8n operation was performed.
+
+Collapsed and expanded views at 320px (synthetic local fixture):
+
+![Collapsed card at 320px](images/mcp-ui/collapsed-320.png)
+
+![Expanded card at 320px](images/mcp-ui/expanded-320.png)
