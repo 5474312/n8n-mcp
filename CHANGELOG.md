@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.85.0] - 2026-09-14
+
+### Added
+
+- **MCP result cards show the outcome of an agent's workflow changes** ([#1104](https://github.com/czlonkowski/n8n-mcp/pull/1104)). The operation-result and validation-summary cards now tell a saved change apart from a preview, a failed operation, a validation outcome and a confirmed execution, with the supporting detail available on demand instead of a repair-request handoff. Response metadata carries the tool name (`_meta["n8n-mcp/toolName"]`), including on the disabled-tool, disabled-operation and error responses, so a card still identifies its tool when the host omits `toolInfo`, and a recoverable SDK diagnostic no longer hides a valid result that arrives after it. Public tool response schemas are unchanged.
+- **Workflow list, execution and connection check cards are enabled again** ([#1104](https://github.com/czlonkowski/n8n-mcp/pull/1104)). The workflow-list, execution-history and health-dashboard apps, disabled in 2.35.2 because Claude.ai rendered them as collapsed accordions, are mapped again to `n8n_list_workflows`, `n8n_executions` and `n8n_health_check`, and `n8n_deploy_template` is mapped back to the operation-result card. Lists show the returned page and a snapshot time; request filters keep array values and pagination options; deployment receipts separate the saved workflow from the setup that remains. The server now exposes five UI resources and 13 tool mappings. These views were accepted in ChatGPT web; native ChatGPT desktop and Claude rendering have not been re-verified.
+- **Result cards start collapsed** ([#1105](https://github.com/czlonkowski/n8n-mcp/pull/1105)). Each card opens as one row with the result category and an outcome pill, and expands with a click, Enter or Space. A failed or setup-needed outcome stays visible while collapsed, expansion survives the pending-to-result transition, and where the host offers widget-state persistence a card restores its previous expansion after a reload.
+
+### Fixed
+
+- **`n8n_deploy_template` reports an auto-fix that failed without throwing.** When the post-deploy auto-fix returned an unsuccessful result, the receipt said nothing about it; it now reports `autoFixStatus: "failed"` with `Auto-fix failed (workflow deployed successfully).` and logs a warning, matching the path where the auto-fix throws.
+- **UI assets are built into every distribution.** Both Docker images (`Dockerfile`, `Dockerfile.railway`) build `ui-apps` in a separate stage, and both npm preparation scripts (`publish-npm.sh`, `publish-npm-quick.sh`) build and copy `ui-apps/dist`. Each path runs `scripts/ui-package-smoke.cjs`, which fails the build when any of the five HTML resources or tool mappings is missing, and CI unpacks the real npm tarballs to check the installed layout.
+
 ## [2.84.4] - 2026-09-12
 
 ### Fixed
