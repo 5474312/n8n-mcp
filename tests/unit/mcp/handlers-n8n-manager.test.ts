@@ -77,6 +77,31 @@ describe('handlers-n8n-manager', () => {
   let getN8nApiConfig: any;
   let n8nValidation: any;
 
+  it('preserves a saved template and reports autofix failure envelopes', async () => {
+    const workflow = createTestWorkflow({ active: false });
+    const templateService = { getTemplate: vi.fn().mockResolvedValue({ name: workflow.name, workflow }) };
+    mockApiClient.createWorkflow.mockResolvedValue(workflow);
+    // The real autofix handler converts this read failure to { success: false }.
+    mockApiClient.getWorkflow.mockRejectedValue(new Error('Synthetic post-save read failure'));
+    const result = await handlers.handleDeployTemplate({ templateId: 1000, autoUpgradeVersions: false, autoFix: true }, templateService, mockRepository);
+    expect(mockApiClient.createWorkflow).toHaveBeenCalledTimes(1);
+    expect(mockApiClient.getWorkflow).toHaveBeenCalledWith(workflow.id);
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({ workflowId: workflow.id, autoFixStatus: 'failed', active: false });
+    expect(result.message).toContain('Auto-fix failed (workflow deployed successfully).');
+  });
+
+  it('reports autofix as skipped only when it was not requested', async () => {
+    const workflow = createTestWorkflow({ active: false });
+    const templateService = { getTemplate: vi.fn().mockResolvedValue({ name: workflow.name, workflow }) };
+    mockApiClient.createWorkflow.mockResolvedValue(workflow);
+    const result = await handlers.handleDeployTemplate({ templateId: 1000, autoUpgradeVersions: false, autoFix: false }, templateService, mockRepository);
+    expect(result.success).toBe(true);
+    expect(result.data.autoFixStatus).toBe('skipped');
+    expect(mockApiClient.getWorkflow).not.toHaveBeenCalled();
+    expect(result.message).not.toContain('Auto-fix failed');
+  });
+
   // Helper function to create test data
   const createTestWorkflow = (overrides = {}) => ({
     id: 'test-workflow-id',

@@ -106,7 +106,14 @@
     "test:release-automation": "node scripts/test-release-automation.js",
     "prepare:release": "node scripts/prepare-release.js",
     "prepare": "husky",
-    "check:settings-drift": "npx tsx scripts/check-settings-drift.ts"
+    "check:settings-drift": "npx tsx scripts/check-settings-drift.ts",
+    "ui:dev": "npm --prefix ui-apps run dev",
+    "ui:check": "npm --prefix ui-apps run check",
+    "ui:test": "npm --prefix ui-apps test",
+    "ui:smoke": "node scripts/ui-protocol-smoke.mjs",
+    "ui:fixtures": "node scripts/ui-fixture-server.mjs",
+    "ui:fixtures:smoke": "node scripts/ui-fixture-smoke.mjs",
+    "ui:fixtures:build": "npm run build && npm --prefix ui-apps run build && npm run ui:fixtures:smoke"
   },
   "repository": {
     "type": "git",

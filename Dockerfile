@@ -1,7 +1,17 @@
 # syntax=docker/dockerfile:1.7
 # Ultra-optimized Dockerfile - minimal runtime dependencies (no n8n packages)
 
-# Stage 1: Builder (TypeScript compilation only)
+# Build the self-contained UI assets independently of server dependencies.
+FROM node:22-alpine AS ui-builder
+WORKDIR /app/ui-apps
+COPY ui-apps/package.json ui-apps/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
+COPY ui-apps/tsconfig.json ui-apps/vite.config.ts ./
+COPY ui-apps/src/apps ./src/apps
+COPY ui-apps/src/shared ./src/shared
+RUN npm run build
+
+# Server builder (TypeScript compilation only)
 FROM node:22-alpine AS builder
 WORKDIR /app
 
@@ -58,6 +68,9 @@ RUN --mount=type=cache,target=/root/.npm \
 
 # Copy built application
 COPY --from=builder /app/dist ./dist
+COPY --from=ui-builder /app/ui-apps/dist ./ui-apps/dist
+RUN --mount=type=bind,source=scripts/ui-package-smoke.cjs,target=/tmp/ui-package-smoke.cjs \
+    node /tmp/ui-package-smoke.cjs /app
 
 # Copy pre-built database and required files
 # Cache bust: 2025-07-06-trigger-fix-v3 - includes is_trigger=true for webhook,cron,interval,emailReadImap

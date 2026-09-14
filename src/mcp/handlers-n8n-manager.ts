@@ -3756,6 +3756,13 @@ export async function handleDeployTemplate(
             fixesApplied = fixData.fixes || [];
             fixSummary = ` Auto-fixed ${fixData.fixesApplied} issue(s).`;
           }
+        } else {
+          autoFixStatus = 'failed';
+          fixSummary = ' Auto-fix failed (workflow deployed successfully).';
+          logger.warn('Auto-fix failed after template deployment', {
+            workflowId: createdWorkflow.id,
+            error: autofixResult.error || 'No autofix result returned'
+          });
         }
       } catch (fixError) {
         // Log but don't fail - autofix is best-effort
