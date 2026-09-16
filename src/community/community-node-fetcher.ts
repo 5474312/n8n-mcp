@@ -492,7 +492,8 @@ export class CommunityNodeFetcher {
     );
     if (!tarball) return null;
 
-    const readme = extractReadmeFromTarball(tarball);
+    // Normalized like a registry README, so a tarball README that is only the placeholder is not stored.
+    const readme = normalizeRegistryReadme(extractReadmeFromTarball(tarball));
     if (readme) {
       logger.info(`README for ${packageName}@${latest} read from its tarball (the registry has none)`);
     }

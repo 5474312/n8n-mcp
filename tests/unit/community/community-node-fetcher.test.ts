@@ -555,6 +555,16 @@ describe('CommunityNodeFetcher', () => {
       expect(mockedAxios.get).not.toHaveBeenCalledWith(tarballUrl, expect.anything());
     });
 
+    it("returns null when the tarball README is only npm's placeholder", async () => {
+      mockedAxios.get
+        .mockResolvedValueOnce({ data: packument('') })
+        .mockResolvedValueOnce({ data: tgz(tarEntry('package/README.md', 'ERROR: No README data found!\n')) });
+
+      const result = await fetcher.fetchReadmesBatch(['n8n-nodes-test']);
+
+      expect(result.get('n8n-nodes-test')).toBeNull();
+    });
+
     it('returns null when neither the registry nor the tarball has a README', async () => {
       mockedAxios.get
         .mockResolvedValueOnce({ data: packument('ERROR: No README data found!') })
