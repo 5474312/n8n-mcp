@@ -229,7 +229,9 @@ export class ExpressionValidator {
       }
       if (call.query === undefined) continue;
       for (const finding of checkJmespathQuery(call.query)) {
-        report(finding.severity, `${finding.message}. ${finding.fix}`);
+        // The silent null is expression-specific; a Code node surfaces the parse error.
+        const consequence = finding.severity === 'error' ? '; n8n resolves the expression to null instead of reporting the parse error' : '';
+        report(finding.severity, `${finding.message}${consequence}. ${finding.fix}`);
       }
     }
   }

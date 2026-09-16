@@ -19,6 +19,10 @@ describe('blankStringLiterals', () => {
     expect(blankStringLiterals(source).length).toBe(source.length);
   });
 
+  it('reads a division after a closed string literal', () => {
+    expect(findJmespathCalls('"x" / $jmespath($json, "[?age > 18]")')[0].query).toBe('[?age > 18]');
+  });
+
   it('reads a regex after return and a division after an object literal', () => {
     expect(findJmespathCalls('(() => { return /$jmespath("a", d)/.source; })()')).toEqual([]);
     expect(findJmespathCalls('({valueOf: () => 1} / $jmespath($json, "[?age > 18]"))')[0].query).toBe('[?age > 18]');
@@ -115,7 +119,7 @@ describe('checkJmespathQuery', () => {
 
   it('errors on a bare number, boolean or null in a comparison', () => {
     expect(messages('customers[?revenue > 100000].name')).toEqual([
-      'error: JMESPath literal 100000 must be wrapped in backticks; n8n resolves the expression to null instead of reporting the parse error',
+      'error: JMESPath literal 100000 must be wrapped in backticks',
     ]);
     expect(messages('[?score >= 1.5]')[0]).toContain('literal 1.5');
     expect(messages('[?delta > -18]')[0]).toContain('literal -18');
@@ -134,9 +138,9 @@ describe('checkJmespathQuery', () => {
   });
 
   it('errors on and / or and on a single =', () => {
-    expect(messages('[?a == `1` and b == `2`]')).toEqual(['error: JMESPath has no "and" operator; n8n resolves the expression to null']);
+    expect(messages('[?a == `1` and b == `2`]')).toEqual(['error: JMESPath has no "and" operator']);
     expect(messages('[?a == `1` or b == `2`]')[0]).toContain('no "or" operator');
-    expect(messages('[?a = `1`]')).toEqual(['error: JMESPath comparisons use ==, not a single =; n8n resolves the expression to null']);
+    expect(messages('[?a = `1`]')).toEqual(['error: JMESPath comparisons use ==, not a single =']);
   });
 
   it('does not read operators or quotes inside raw strings, JSON literals or quoted identifiers', () => {
@@ -157,6 +161,10 @@ describe('checkJmespathQuery', () => {
     expect(messages('customers[?country=="PL"].name')).toEqual([
       'warning: JMESPath treats "PL" as an identifier, not a string; the comparison matches nothing',
     ]);
+  });
+
+  it('escapes an apostrophe in the suggested raw string', () => {
+    expect(checkJmespathQuery(`[?name == "O'Reilly"]`)[0].fix).toBe(`Use single quotes for a raw string: == 'O\\'Reilly'`);
   });
 
   it('ignores a query longer than the scan limit', () => {

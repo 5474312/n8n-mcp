@@ -267,8 +267,8 @@ const highPriority = $jmespath(allItems, '[?priority == \`1\`]');
 // Combine multiple conditions
 const urgentExpensive = $jmespath(allItems, '[?price >= \`100\` && priority == \`1\`]');
 
-// String comparisons don't need backticks
-const activeItems = $jmespath(allItems, '[?status == "active"]');
+// Raw strings use single quotes; double quotes name a field
+const activeItems = $jmespath(allItems, "[?status == 'active']");
 
 // Return filtered results
 return expensiveItems.map(item => ({json: item}));`

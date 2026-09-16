@@ -81,6 +81,8 @@ export function blankStringLiterals(source: string, options: { comments?: boolea
       }
       if (ch === quote) {
         quote = null;
+        lastCode = ch; // a closed literal is a value, so a following `/` divides
+        lastWord = '';
       } else if (ch === '\n') {
         quote = null; // an unterminated literal ends at the line
         i++;
@@ -103,6 +105,8 @@ export function blankStringLiterals(source: string, options: { comments?: boolea
       }
       if (ch === '`') {
         templates.pop();
+        lastCode = ch;
+        lastWord = '';
       } else if (ch === '$' && source[i + 1] === '{' && templates.length < MAX_TEMPLATE_DEPTH) {
         templates[templates.length - 1] = 0;
         i += 2;
@@ -321,7 +325,7 @@ export function checkJmespathQuery(query: string): JmespathQueryFinding[] {
   while ((match = bareNumber.exec(code)) !== null) {
     add({
       severity: 'error',
-      message: `JMESPath literal ${match[2]} must be wrapped in backticks; n8n resolves the expression to null instead of reporting the parse error`,
+      message: `JMESPath literal ${match[2]} must be wrapped in backticks`,
       fix: `Write ${match[1]} \`${match[2]}\``
     });
   }
@@ -344,7 +348,7 @@ export function checkJmespathQuery(query: string): JmespathQueryFinding[] {
   while ((match = wordOperator.exec(code)) !== null) {
     add({
       severity: 'error',
-      message: `JMESPath has no "${match[1]}" operator; n8n resolves the expression to null`,
+      message: `JMESPath has no "${match[1]}" operator`,
       fix: `Use ${match[1] === 'and' ? '&&' : '||'}`
     });
   }
@@ -352,7 +356,7 @@ export function checkJmespathQuery(query: string): JmespathQueryFinding[] {
   if (/(^|[^=!<>])=(?!=)/.test(code)) {
     add({
       severity: 'error',
-      message: 'JMESPath comparisons use ==, not a single =; n8n resolves the expression to null',
+      message: 'JMESPath comparisons use ==, not a single =',
       fix: 'Use == for equality'
     });
   }
@@ -366,7 +370,7 @@ export function checkJmespathQuery(query: string): JmespathQueryFinding[] {
     add({
       severity: 'warning',
       message: `JMESPath treats "${text}" as an identifier, not a string; the comparison matches nothing`,
-      fix: `Use single quotes for a raw string: ${match[1]} '${text}'`
+      fix: `Use single quotes for a raw string: ${match[1]} '${text.replace(/'/g, "\\'")}'`
     });
   }
 

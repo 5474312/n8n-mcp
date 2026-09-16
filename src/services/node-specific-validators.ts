@@ -2007,7 +2007,7 @@ export class NodeSpecificValidators {
     // warning here: a Code node surfaces the runtime failure, unlike an expression, which
     // resolves to null. Python has no `_jmespath` on n8n 2.x; the Python rules report it as a
     // removed global.
-    if (language === 'javaScript' && code.length <= MAX_CODE_LENGTH && code.includes('$jmespath(')) {
+    if (language === 'javaScript' && code.length <= MAX_CODE_LENGTH && code.includes('$jmespath')) {
       for (const call of findJmespathCalls(code)) {
         if (call.queryIsFirstArgument) {
           warnings.push({

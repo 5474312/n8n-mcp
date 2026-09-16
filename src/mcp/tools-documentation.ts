@@ -339,7 +339,7 @@ const plus5Days = now.plus({ days: 5 });
 ### JSON Querying
 \`\`\`javascript
 // JMESPath queries
-const result = $jmespath($json, "users[?age > 30].name");
+const result = $jmespath($json, "users[?age > \`30\`].name"); // numbers are backtick literals
 \`\`\`
 
 ## Return Format Requirements
