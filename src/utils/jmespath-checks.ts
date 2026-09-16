@@ -132,8 +132,16 @@ export function blankStringLiterals(source: string, options: { comments?: boolea
       while (i < end) out[i++] = ' ';
       continue;
     }
-    // A regex literal cannot be empty or start with `*`, so `//` and `/*` are never one.
-    if (ch === '/' && source[i + 1] !== '/' && source[i + 1] !== '*' && (lastCode === '' || REGEX_PRECEDERS.has(lastCode) || REGEX_KEYWORDS.has(lastWord))) {
+    // A regex literal cannot be empty or start with `*`, so `//` and `/*` are never one;
+    // without comment blanking they pass through as operators.
+    if (ch === '/' && (source[i + 1] === '/' || source[i + 1] === '*')) {
+      out[i] = ch;
+      lastCode = ch;
+      lastWord = '';
+      i += 2;
+      continue;
+    }
+    if (ch === '/' && (lastCode === '' || REGEX_PRECEDERS.has(lastCode) || REGEX_KEYWORDS.has(lastWord))) {
       i = blankRegexLiteral(source, out, i);
       lastCode = '/';
       lastWord = '';
