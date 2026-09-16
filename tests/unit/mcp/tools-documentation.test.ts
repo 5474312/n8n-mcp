@@ -218,6 +218,10 @@ describe('tools-documentation', () => {
         expect(doc).toContain('custom runner image');
         // `global` only fails inside a function
         expect(doc).toContain('global counter` inside a function');
+        // The deny table lists the complete set
+        ['object', 'memoryview', 'breakpoint'].forEach(builtin => {
+          expect(doc).toContain(`\`${builtin}\``);
+        });
         expect(doc).not.toContain('_input.all()\n');
       });
     });

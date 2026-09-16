@@ -1537,6 +1537,74 @@ export class NodeSpecificValidators {
       .filter((name): name is string => name !== null);
   }
 
+  /**
+   * Joins Python continuation lines - a trailing `\` and implicit continuation
+   * inside brackets - so a statement can be parsed whole. The result has one
+   * entry per source line: the line that STARTS a statement holds the joined
+   * text, continuation lines hold ''. Line count is preserved so callers keep
+   * their line-to-scope mapping.
+   */
+  private static pythonLogicalLines(lines: string[]): string[] {
+    const logical = lines.map(() => '');
+
+    // The trailing `\` is a line-join marker, not part of the statement, so it
+    // is dropped - otherwise it would sit between two words of the joined text.
+    const continuation = /\\[ \t]*$/;
+    const withoutMarker = (line: string) => line.replace(continuation, '');
+
+    for (let i = 0; i < lines.length; i++) {
+      const start = i;
+      let statement = withoutMarker(lines[i]);
+      let depth = this.pythonBracketDelta(lines[i]);
+      let continued = continuation.test(lines[i]);
+
+      while ((depth > 0 || continued) && i + 1 < lines.length && statement.length <= MAX_SHORT_INPUT_LENGTH) {
+        i++;
+        statement += ` ${withoutMarker(lines[i]).trim()}`;
+        depth += this.pythonBracketDelta(lines[i]);
+        continued = continuation.test(lines[i]);
+      }
+
+      logical[start] = statement;
+    }
+
+    return logical;
+  }
+
+  /**
+   * Names an import statement binds: `import a.b` binds `a`, `import a.b as c`
+   * and `from m import x as c` bind `c`, `from m import x` binds `x`. A bound
+   * name is a local, so the rules about runtime globals and denied builtins
+   * stay quiet about it - the blocked-import warning still fires.
+   */
+  private static pythonImportBindings(statement: string): string[] {
+    const text = statement.trim().replace(/[()]/g, ' ');
+    const words = text.split(/[ \t]+/).filter(Boolean);
+    if (words.length === 0) return [];
+
+    let list: string[];
+    if (words[0] === 'import') {
+      list = words.slice(1);
+    } else if (words[0] === 'from') {
+      const keyword = words.indexOf('import');
+      if (keyword === -1) return [];
+      list = words.slice(keyword + 1);
+    } else {
+      return [];
+    }
+
+    const names: string[] = [];
+    for (const part of list.join(' ').split(',')) {
+      const pieces = part.trim().split(/[ \t]+/).filter(Boolean);
+      if (pieces.length === 0) continue;
+      const alias = pieces.indexOf('as');
+      const target = alias === -1 ? pieces[0].split('.')[0] : pieces[alias + 1];
+      if (target && /^[A-Za-z_]\w*$/.test(target)) names.push(target);
+    }
+
+    return names;
+  }
+
   /** Names a statement binds in its own scope (assignment, `for`, `as`). */
   private static pythonBindingsOnLine(line: string): string[] {
     const names: string[] = [];
@@ -1563,6 +1631,8 @@ export class NodeSpecificValidators {
     const asTargets = /\bas[ \t]+(\w+)/g;
     let match: RegExpExecArray | null;
     while ((match = asTargets.exec(line)) !== null) names.push(match[1]);
+
+    this.pythonImportBindings(line).forEach(name => names.push(name));
 
     return names;
   }
@@ -1644,8 +1714,9 @@ export class NodeSpecificValidators {
    * names each scope binds. A `def` header line belongs to the ENCLOSING scope,
    * because parameter defaults and annotations are evaluated there.
    */
-  private static pythonScopes(scan: string): PythonScopeIndex {
+  private static pythonScopes(scan: string, logicalLines?: string[]): PythonScopeIndex {
     const lines = scan.split('\n');
+    const logical = logicalLines ?? this.pythonLogicalLines(lines);
     const scopes: { parent: number; names: Set<string> }[] = [{ parent: -1, names: new Set() }];
     const lineScope = new Array(lines.length).fill(0);
     const lineLocal = lines.map(() => new Set<string>());
@@ -1707,8 +1778,11 @@ export class NodeSpecificValidators {
       i = last + 1;
     }
 
+    // Bindings are read from the JOINED statement, so a target split across a
+    // continuation line still counts.
     lines.forEach((line, index) => {
-      this.pythonBindingsOnLine(line).forEach(name => scopes[lineScope[index]].names.add(name));
+      const statement = logical[index] || line;
+      this.pythonBindingsOnLine(statement).forEach(name => scopes[lineScope[index]].names.add(name));
       this.pythonLineLocalBindings(line).forEach(name => lineLocal[index].add(name));
     });
 
@@ -1770,9 +1844,11 @@ export class NodeSpecificValidators {
     const lines = code.split('\n');
     const isEachItem = mode === 'runOnceForEachItem';
     const scan = this.withinCapOrRaw(code, c => this.stripPythonStringsAndComments(c));
-    // One scope pass feeds every name check below. Above the length cap the
+    // Continuation lines are joined once so statements can be parsed whole, and
+    // one scope pass feeds every name check below. Above the length cap the
     // scope-dependent rules are skipped rather than run against raw text.
-    const scopeIndex = code.length <= MAX_CODE_LENGTH ? this.pythonScopes(scan) : null;
+    const logicalLines = this.pythonLogicalLines(scan.split('\n'));
+    const scopeIndex = code.length <= MAX_CODE_LENGTH ? this.pythonScopes(scan, logicalLines) : null;
 
     // Check for tab/space mixing (already done in base validator)
 
@@ -1849,17 +1925,31 @@ export class NodeSpecificValidators {
     const importedModules = new Set<string>();
     const importStatement = /(?:^|[:;])[ \t]*import[ \t]+([^\n;]+)/gm;
     const fromImportStatement = /(?:^|[:;])[ \t]*from[ \t]+([\w.]+)[ \t]+import\b/gm;
-    const rootModule = (token: string) => token.trim().split(/[ \t]+as[ \t]+/)[0].trim().split('.')[0];
+    // Parsed with string operations rather than a regex: `[ \t]+as[ \t]+` has
+    // quantifiers either side of a literal and backtracks on long runs of tabs.
+    const rootModule = (token: string) => {
+      const trimmed = token.trim();
+      const space = trimmed.search(/[ \t]/);
+      const first = space === -1 ? trimmed : trimmed.slice(0, space);
+      return first.split('.')[0];
+    };
     const addModule = (token: string) => {
       const name = rootModule(token);
       if (/^[A-Za-z_]\w*$/.test(name)) importedModules.add(name);
     };
-    let importMatch: RegExpExecArray | null;
-    while ((importMatch = importStatement.exec(scan)) !== null) {
-      importMatch[1].split(',').forEach(addModule);
-    }
-    while ((importMatch = fromImportStatement.exec(scan)) !== null) {
-      addModule(importMatch[1]);
+    // Scanned per joined statement so a parenthesised or backslash-continued
+    // import list is seen whole.
+    for (const statement of logicalLines) {
+      if (!statement) continue;
+      let importMatch: RegExpExecArray | null;
+      importStatement.lastIndex = 0;
+      while ((importMatch = importStatement.exec(statement)) !== null) {
+        importMatch[1].split(',').forEach(addModule);
+      }
+      fromImportStatement.lastIndex = 0;
+      while ((importMatch = fromImportStatement.exec(statement)) !== null) {
+        addModule(importMatch[1]);
+      }
     }
     for (const moduleName of importedModules) {
       warnings.push({
@@ -1885,7 +1975,10 @@ export class NodeSpecificValidators {
     // Denied builtins. A local `def type(...)` or `type = ...` shadows the
     // builtin, so the call resolves to the user's own definition.
     for (const [name, fix] of Object.entries(scopeIndex ? this.PYTHON_DENIED_BUILTINS : {})) {
-      if (this.pythonHasUnboundReference(scopeIndex!, name, new RegExp(`(?<![\\w.])${name}[ \\t]*\\(`))) {
+      // A bare reference raises NameError too (`fn = eval`, `return type`).
+      // Excluded: attribute access (`obj.type`) via the lookbehind, and a
+      // keyword-argument name (`f(type=1)`) via the lookahead.
+      if (this.pythonHasUnboundReference(scopeIndex!, name, new RegExp(`(?<![\\w.])${name}\\b(?![ \\t]*=(?!=))`))) {
         errors.push({
           type: 'invalid_value',
           property: 'pythonCode',
@@ -2021,7 +2114,7 @@ export class NodeSpecificValidators {
         );
         if (this.pythonReturnsWholeGroup(strippedTopLevel, /^[ \t]*return[ \t]+\[/)
             || this.pythonReturnsWholeGroup(strippedTopLevel, /^[ \t]*return[ \t]+list[ \t]*\(/)
-            || /^[ \t]*return[ \t]+_items[ \t]*;?[ \t]*$/m.test(strippedTopLevel)) {
+            || /^[ \t]*return[ \t]+_items[ \t;]*$/m.test(strippedTopLevel)) {
           errors.push({
             type: 'invalid_value',
             property: 'pythonCode',

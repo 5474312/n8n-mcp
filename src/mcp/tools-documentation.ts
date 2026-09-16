@@ -552,7 +552,7 @@ library module 'json' is disallowed. Allowed stdlib modules: none\`.
 
 | You write | What happens | Use instead |
 |---|---|---|
-| \`type\`, \`getattr\`, \`setattr\`, \`hasattr\`, \`vars\`, \`dir\`, \`globals\`, \`locals\`, \`open\`, \`input\`, \`eval\`, \`exec\`, \`compile\` | \`NameError\` at runtime | \`isinstance(x, dict)\`; \`key in d\` / \`d.get(key)\` |
+| \`type\`, \`getattr\`, \`setattr\`, \`hasattr\`, \`vars\`, \`dir\`, \`globals\`, \`locals\`, \`open\`, \`input\`, \`eval\`, \`exec\`, \`compile\`, \`object\`, \`memoryview\`, \`breakpoint\` | \`NameError\` at runtime, whether called or merely named | \`isinstance(x, dict)\`; \`key in d\` / \`d.get(key)\` |
 | \`class Foo: ...\` | \`__build_class__ not found\` | dicts + functions |
 | \`x.__class__\`, \`__import__("json")\` | \`Security violations detected\` (before running) | - |
 | \`global counter\` inside a function | \`NameError\` - your code already runs inside a wrapper function, so a nested \`global\` never binds (at top level it is a harmless no-op) | \`nonlocal counter\` |

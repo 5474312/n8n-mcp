@@ -2002,6 +2002,51 @@ return [{"json": {"result": result}}]
           expect(errorMessages().filter(m => m.includes('_input'))).toHaveLength(0);
         });
 
+        it('should not fire when the name is imported into scope', () => {
+          context.config = pythonConfig('from mod import _json\nreturn [{"json": {"v": _json, "n": len(_items)}}]');
+
+          NodeSpecificValidators.validateCode(context);
+
+          expect(errorMessages().filter(m => m.includes('_json does not exist'))).toHaveLength(0);
+        });
+
+        it('should not fire when the name is an import alias', () => {
+          context.config = pythonConfig('import x as _json\nreturn [{"json": {"v": str(_json), "n": len(_items)}}]');
+
+          NodeSpecificValidators.validateCode(context);
+
+          expect(errorMessages().filter(m => m.includes('_json does not exist'))).toHaveLength(0);
+        });
+
+        it('should read a backslash-continued import as one statement', () => {
+          context.config = pythonConfig('from pkg \\\n    import _json\nreturn [{"json": {"v": _json, "n": len(_items)}}]');
+
+          NodeSpecificValidators.validateCode(context);
+
+          expect(errorMessages().filter(m => m.includes('_json does not exist'))).toHaveLength(0);
+          expect(context.warnings.some((w: any) => w.message.includes('import pkg is blocked'))).toBe(true);
+        });
+
+        it('should warn about every module of a backslash-continued import list', () => {
+          context.config = pythonConfig('import first, \\\n    second\nreturn [{"json": {"n": len(_items)}}]');
+
+          NodeSpecificValidators.validateCode(context);
+
+          const blocked = context.warnings
+            .filter((w: any) => w.message.includes('is blocked unless'))
+            .map((w: any) => w.message);
+          expect(blocked).toContain('import first is blocked unless this instance allowlists the module (n8n Cloud allows none)');
+          expect(blocked).toContain('import second is blocked unless this instance allowlists the module (n8n Cloud allows none)');
+        });
+
+        it('should warn about every module of a parenthesised import list', () => {
+          context.config = pythonConfig('from pkg import (\n    alpha,\n    beta,\n)\nreturn [{"json": {"n": len(_items)}}]');
+
+          NodeSpecificValidators.validateCode(context);
+
+          expect(context.warnings.some((w: any) => w.message.includes('import pkg is blocked'))).toBe(true);
+        });
+
         it('should not fire when the code assigns the name itself', () => {
           context.config = pythonConfig('_json = {"count": len(_items)}\nreturn _json');
 
@@ -2236,6 +2281,39 @@ return [{"json": {"result": result}}]
             expect(errorMessages()).toContain(`${builtin}() is denied in the Python sandbox and raises NameError`);
           }
         );
+
+        it('should error on a bare reference, not only a call', () => {
+          context.config = pythonConfig('fn = eval\nreturn [{"json": {"n": len(_items)}}]');
+
+          NodeSpecificValidators.validateCode(context);
+
+          expect(errorMessages()).toContain('eval() is denied in the Python sandbox and raises NameError');
+        });
+
+        it('should not flag attribute access with a denied name', () => {
+          context.config = pythonConfig('return [{"json": {"t": obj.type}} for obj in _items]');
+
+          NodeSpecificValidators.validateCode(context);
+
+          expect(errorMessages().filter(m => m.includes('type() is denied'))).toHaveLength(0);
+        });
+
+        it('should not flag a keyword-argument name', () => {
+          context.config = pythonConfig('def render(type=None):\n    return type\n\nreturn [{"json": {"v": render(type=1)}}]');
+
+          NodeSpecificValidators.validateCode(context);
+
+          expect(errorMessages().filter(m => m.includes('type() is denied'))).toHaveLength(0);
+        });
+
+        it('should not flag a name imported into scope', () => {
+          context.config = pythonConfig('from builtins import type\nreturn [{"json": {"t": str(type(1))}}]');
+
+          NodeSpecificValidators.validateCode(context);
+
+          expect(errorMessages().filter(m => m.includes('type() is denied'))).toHaveLength(0);
+          expect(context.warnings.some((w: any) => w.message.includes('import builtins is blocked'))).toBe(true);
+        });
 
         it('should not flag a call to a locally defined function of the same name', () => {
           context.config = pythonConfig('def type(value):\n    return "n" if isinstance(value, int) else "s"\n\nreturn [{"json": {"t": type(it["json"].get("v"))}} for it in _items]');
@@ -2633,7 +2711,10 @@ return [{"json": {"result": result}}]
         it.each([
           ['unclosed def headers', 'def f(\n'],
           ['unclosed list returns', 'return [\n'],
-          ['bare returns', 'return _items\n']
+          ['bare returns', 'return _items\n'],
+          ['tab-padded bare returns', 'return\t_items\t\t\t\t\t\t\t\t\n'],
+          ['tab-padded imports', 'import\tjson\t\t\t\t\t\t\t\t\n'],
+          ['tab runs', '\t'.repeat(64) + '\n']
         ])('should validate 200 KB of %s under the budget', (_label, unit) => {
           const pythonCode = unit.repeat(Math.ceil(200_000 / unit.length));
           context.config = pythonConfig(pythonCode);
