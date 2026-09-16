@@ -82,8 +82,11 @@ export class EnhancedConfigValidator extends ConfigValidator {
     // other check; an object there throws "Cannot convert object to primitive value"
     // (#1094). Only a number or numeric string is a version; anything else means version 1.
     const rawVersion = config['@version'];
-    if (rawVersion !== undefined && !(typeof rawVersion === 'number' || (typeof rawVersion === 'string' && rawVersion.trim() !== '' && Number.isFinite(Number(rawVersion))))) {
-      config = { ...config, '@version': 1 };
+    if (rawVersion !== undefined) {
+      const numeric = typeof rawVersion === 'number' ? rawVersion
+        : typeof rawVersion === 'string' && rawVersion.trim() !== '' ? Number(rawVersion) : NaN;
+      // Stored as a number so every version gate below compares numerically.
+      config = { ...config, '@version': Number.isFinite(numeric) ? numeric : 1 };
     }
 
     // Extract operation context from config

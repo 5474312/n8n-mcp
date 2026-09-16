@@ -3348,4 +3348,24 @@ describe('n8n-validation', () => {
     });
   });
 
+  describe('Switch with an empty rule collection (#1100)', () => {
+    it('still counts branches against the fallback output alone', () => {
+      const nodes = [
+        webhookNode('1', 'Start', 'n8n-nodes-base.manualTrigger'),
+        { ...webhookNode('2', 'Switch', 'n8n-nodes-base.switch', 3.2), parameters: { rules: { values: [] }, options: { fallbackOutput: 'extra' } } },
+        webhookNode('3', 'End', 'n8n-nodes-base.noOp', 1),
+      ];
+      const ok = validateWorkflowStructure({ name: 'Switch', nodes, connections: {
+        Start: { main: [[{ node: 'Switch', type: 'main', index: 0 }]] },
+        Switch: { main: [[{ node: 'End', type: 'main', index: 0 }]] },
+      } } as unknown as Partial<Workflow>);
+      expect(ok.some(e => e.includes('output branches in connections'))).toBe(false);
+      const tooMany = validateWorkflowStructure({ name: 'Switch', nodes, connections: {
+        Start: { main: [[{ node: 'Switch', type: 'main', index: 0 }]] },
+        Switch: { main: [[{ node: 'End', type: 'main', index: 0 }], [{ node: 'End', type: 'main', index: 0 }]] },
+      } } as unknown as Partial<Workflow>);
+      expect(tooMany.some(e => e.includes('0 rules') && e.includes('plus a fallback output'))).toBe(true);
+    });
+  });
+
 });

@@ -1501,11 +1501,13 @@ export class WorkflowValidator {
       if ((sourceNode.typeVersion || 1) < 2) return { shortType, expectedOutputs: 4 };
       const params = sourceNode.parameters as any;
       // Expression mode routes by `output` into `numberOutputs` outputs; a retained rule
-      // collection is ignored by n8n and must not set the count.
+      // collection is ignored by n8n and must not set the count. Any other non-rules mode
+      // is unknown here.
       if (params?.mode === 'expression') {
         const count = Number(params?.numberOutputs);
         return Number.isInteger(count) && count > 0 ? { shortType, expectedOutputs: count } : null;
       }
+      if (params?.mode && params.mode !== 'rules') return null;
       const rules = params?.rules?.values ?? params?.rules?.rules;
       if (Array.isArray(rules)) {
         // Only `fallbackOutput: 'extra'` adds an output; 'none' or an output index does not.

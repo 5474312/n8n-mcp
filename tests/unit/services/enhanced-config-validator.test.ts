@@ -142,6 +142,14 @@ describe('EnhancedConfigValidator', () => {
         expect(error!.fix).toBeDefined();
       });
 
+      it('stores a numeric-string @version as a number and treats Infinity as version 1', () => {
+        const config = { '@version': '3.2', mode: 'rules', rules: { values: [{ conditions: { conditions: [{ operator: { type: 'string' } }] } }] } };
+        const result = EnhancedConfigValidator.validateWithMode('nodes-base.switch', config as any, switchProperties, 'operation', 'ai-friendly');
+        expect(result.errors.some(e => e.property === 'rules' && e.message.includes('operator'))).toBe(true);
+        const inf = EnhancedConfigValidator.validateWithMode('nodes-base.switch', { ...config, '@version': Infinity } as any, switchProperties, 'operation', 'ai-friendly');
+        expect(inf.errors.some(e => e.property === 'rules' && e.message.includes('operator'))).toBe(false);
+      });
+
       it('treats a non-primitive @version as version 1 instead of throwing (#1094)', () => {
         const config = { '@version': { toString: null, valueOf: null }, mode: 'rules', rules: { values: [{ conditions: { conditions: [{ operator: { type: 'string' } }] } }] } };
         expect(() => EnhancedConfigValidator.validateWithMode('nodes-base.switch', config as any, switchProperties, 'operation', 'ai-friendly')).not.toThrow();

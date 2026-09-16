@@ -506,7 +506,9 @@ export function validateWorkflowStructure(workflow: Partial<Workflow>): string[]
       const rules = Array.isArray(ruleCollection) ? ruleCollection : [];
       const nodeConnections = workflow.connections[switchNode.name];
 
-      if (rules.length > 0 && nodeConnections?.main) {
+      // An empty rule collection is a valid Switch (its fallback output may be the only one),
+      // so the check keys on the collection being an array, not on it holding rules.
+      if (Array.isArray(ruleCollection) && nodeConnections?.main) {
         const outputBranches = nodeConnections.main.length;
 
         // `fallbackOutput: 'extra'` adds one output after the rule outputs. 'none' (the
