@@ -118,9 +118,10 @@ export async function cleanupOrphanedWorkflows(
         const timestamp = w.updatedAt || w.createdAt;
         const workflowTime = timestamp ? new Date(timestamp).getTime() : NaN;
 
-        // No usable timestamp - treat as old/deletable.
+        // No usable timestamp: the age cannot be established, so the guard keeps it.
+        // The maintenance script passes minAgeMs 0 and deletes every candidate.
         if (Number.isNaN(workflowTime)) {
-          return true;
+          return false;
         }
 
         const isOldEnough = workflowTime < cutoffTime;

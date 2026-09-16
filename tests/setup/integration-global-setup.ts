@@ -36,6 +36,7 @@ const SWEEP_TIMEOUT_MS = 15_000;
 // The URL loadTestEnvironment() and .env.test fall back to when nothing real
 // is configured. A sweep against it would only produce a connection error.
 const MOCK_API_URL = 'http://localhost:3001/mock-api';
+const MOCK_API_KEY = 'test-api-key-12345';
 
 export async function setup(): Promise<void> {
   // CI never ran the per-file sweep either (`if (!process.env.CI)`), and
@@ -57,9 +58,9 @@ export async function setup(): Promise<void> {
   }
 
   // loadTestEnvironment() fills in mock defaults when no real instance is
-  // configured, so credentials are always present; the mock URL is the
-  // "nothing configured" signal.
-  if (!creds.cleanup.enabled || creds.url === MOCK_API_URL) {
+  // configured, so credentials are always present; the mock URL or the mock
+  // key is the "not (fully) configured" signal.
+  if (!creds.cleanup.enabled || creds.url === MOCK_API_URL || creds.apiKey === MOCK_API_KEY) {
     return;
   }
 
