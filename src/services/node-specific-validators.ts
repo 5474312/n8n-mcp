@@ -44,12 +44,19 @@ const MAX_HEADER_LINES = 50;
 const MAX_RETURN_LOOKAHEAD = 5_000;
 const MAX_RETURN_TOTAL_SCAN = 200_000;
 
+/** A name bound only across a range of one line (comprehension or lambda). */
+interface PythonLocalBinding {
+  name: string;
+  start: number;
+  end: number;
+}
+
 /** One pass over a Python Code node: every line's scope and what it binds. */
 interface PythonScopeIndex {
   lines: string[];
   lineScope: number[];
   scopes: { parent: number; names: Set<string> }[];
-  lineLocal: Set<string>[];
+  lineLocal: PythonLocalBinding[][];
   referenceText: string[];
 }
 
@@ -1638,30 +1645,84 @@ export class NodeSpecificValidators {
   }
 
   /**
-   * Names bound only for the line they appear on: comprehension `for` targets
-   * and `lambda` parameters, both of which have their own scope.
+   * True when a replacement field reaching a dunder belongs to a string that is
+   * actually passed to `.format(...)`. A plain literal such as
+   * `label = "{obj.__class__}"` never evaluates the attribute. f-string fields
+   * are real code and are already visible in the ordinary scan view.
    */
-  private static pythonLineLocalBindings(line: string): string[] {
-    const names: string[] = [];
+  private static pythonFormatsDunder(formatFields: string): boolean {
+    const field = /\{[^{}\n]{0,200}\.__\w+__[^{}\n]{0,200}\}/g;
+    let match: RegExpExecArray | null;
+
+    while ((match = field.exec(formatFields)) !== null) {
+      const after = formatFields.slice(match.index + match[0].length, match.index + match[0].length + 200);
+      if (/['"][ \t]*\.[ \t]*format[ \t]*\(/.test(after)) return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * The bracket group that encloses `index`, or null when the position is not
+   * inside one. Used to bound a comprehension or lambda to its own expression.
+   */
+  private static pythonEnclosingGroup(line: string, index: number): { start: number; end: number } | null {
+    let closers = 0;
+    let start = -1;
+
+    for (let i = index - 1; i >= 0; i--) {
+      const char = line[i];
+      if (char === ')' || char === ']' || char === '}') closers++;
+      else if (char === '(' || char === '[' || char === '{') {
+        if (closers === 0) { start = i; break; }
+        closers--;
+      }
+    }
+    if (start === -1) return null;
+
+    let depth = 0;
+    for (let i = start; i < line.length; i++) {
+      const char = line[i];
+      if (char === '(' || char === '[' || char === '{') depth++;
+      else if (char === ')' || char === ']' || char === '}') {
+        depth--;
+        if (depth === 0) return { start, end: i };
+      }
+    }
+    return { start, end: line.length };
+  }
+
+  /**
+   * Names bound by a comprehension `for` target or a `lambda` parameter, each
+   * with the character range it covers. The range matters: in
+   * `_json + [_json for _json in _items]` only the reference inside the
+   * comprehension is bound - the first one is still the removed global.
+   */
+  private static pythonLineLocalBindings(line: string): PythonLocalBinding[] {
+    const bindings: PythonLocalBinding[] = [];
+    const add = (targets: string, range: { start: number; end: number }) => {
+      this.pythonSplitTopLevel(targets).forEach(target => {
+        const name = this.pythonTargetName(target);
+        if (name) bindings.push({ name, ...range });
+      });
+    };
 
     const forTargets = /\bfor[ \t]+(.+?)[ \t]+in\b/g;
     let match: RegExpExecArray | null;
     while ((match = forTargets.exec(line)) !== null) {
-      this.pythonSplitTopLevel(match[1]).forEach(target => {
-        const name = this.pythonTargetName(target);
-        if (name) names.push(name);
-      });
+      // A comprehension binds across the whole bracket group, including the
+      // output expression written before the `for`.
+      add(match[1], this.pythonEnclosingGroup(line, match.index) ?? { start: match.index, end: line.length });
     }
 
     const lambdas = /\blambda\b([^:\n]*):/g;
     while ((match = lambdas.exec(line)) !== null) {
-      this.pythonSplitTopLevel(match[1]).forEach(target => {
-        const name = this.pythonTargetName(target);
-        if (name) names.push(name);
-      });
+      // A lambda binds from its keyword onward, never before it.
+      const group = this.pythonEnclosingGroup(line, match.index);
+      add(match[1], { start: match.index, end: group ? group.end : line.length });
     }
 
-    return names;
+    return bindings;
   }
 
   /**
@@ -1719,7 +1780,7 @@ export class NodeSpecificValidators {
     const logical = logicalLines ?? this.pythonLogicalLines(lines);
     const scopes: { parent: number; names: Set<string> }[] = [{ parent: -1, names: new Set() }];
     const lineScope = new Array(lines.length).fill(0);
-    const lineLocal = lines.map(() => new Set<string>());
+    const lineLocal: PythonLocalBinding[][] = lines.map(() => []);
     const referenceText = [...lines];
     const stack: { scope: number; indent: number }[] = [{ scope: 0, indent: -1 }];
 
@@ -1765,16 +1826,20 @@ export class NodeSpecificValidators {
       // The parameter NAMES are binding sites, not references to whatever the
       // runtime would otherwise provide, so they are masked out.
       const masked = this.pythonMaskHeaderBindings(header).split('\n');
+      const body = scopes.push({ parent: enclosing, names: new Set(this.pythonParameterNames(header)) }) - 1;
+
+      // A one-line def (`def helper(_json): return _json`) carries its suite on
+      // the header line, and that suite runs in the function's scope.
+      const colon = this.pythonHeaderColonIndex(header);
+      const inlineSuite = colon !== -1 && header.slice(colon + 1).trim() !== '';
+
       for (let k = i; k <= last; k++) {
-        lineScope[k] = enclosing;
+        lineScope[k] = k === last && inlineSuite ? body : enclosing;
         referenceText[k] = masked[k - i];
       }
 
       scopes[enclosing].names.add(definition[1]);
-      stack.push({
-        scope: scopes.push({ parent: enclosing, names: new Set(this.pythonParameterNames(header)) }) - 1,
-        indent
-      });
+      stack.push({ scope: body, indent });
       i = last + 1;
     }
 
@@ -1783,7 +1848,7 @@ export class NodeSpecificValidators {
     lines.forEach((line, index) => {
       const statement = logical[index] || line;
       this.pythonBindingsOnLine(statement).forEach(name => scopes[lineScope[index]].names.add(name));
-      this.pythonLineLocalBindings(line).forEach(name => lineLocal[index].add(name));
+      lineLocal[index] = this.pythonLineLocalBindings(line);
     });
 
     return { lines, lineScope, scopes, lineLocal, referenceText };
@@ -1807,14 +1872,26 @@ export class NodeSpecificValidators {
     reference: RegExp
   ): boolean {
     const { lineScope, scopes, lineLocal, referenceText } = index;
+    const matcher = new RegExp(reference.source, reference.flags.includes('g') ? reference.flags : `${reference.flags}g`);
 
-    return referenceText.some((line, index) => {
-      if (!reference.test(line)) return false;
-      if (lineLocal[index].has(name)) return false;
-      for (let scope = lineScope[index]; scope !== -1; scope = scopes[scope].parent) {
-        if (scopes[scope].names.has(name)) return false;
+    return referenceText.some((line, lineNumber) => {
+      let bound = false;
+      for (let scope = lineScope[lineNumber]; scope !== -1; scope = scopes[scope].parent) {
+        if (scopes[scope].names.has(name)) { bound = true; break; }
       }
-      return true;
+      if (bound) return false;
+
+      matcher.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = matcher.exec(line)) !== null) {
+        if (match[0].length === 0) matcher.lastIndex++;
+        const at = match.index;
+        const shadowed = lineLocal[lineNumber].some(
+          local => local.name === name && at >= local.start && at <= local.end
+        );
+        if (!shadowed) return true;
+      }
+      return false;
     });
   }
 
@@ -1865,7 +1942,9 @@ export class NodeSpecificValidators {
     // local, not the runtime global.
     if (scopeIndex) {
       for (const name of this.PYTHON_REMOVED_GLOBALS) {
-        if (this.pythonHasUnboundReference(scopeIndex, name, new RegExp(`\\b${name}\\b`))) {
+        // The lookbehind keeps attribute access out of it: `state._json` reads a
+        // field of a dict-like object, not the removed global.
+        if (this.pythonHasUnboundReference(scopeIndex, name, new RegExp(`(?<![\\w.])${name}\\b`))) {
           errors.push({
             type: 'invalid_value',
             property: 'pythonCode',
@@ -1877,7 +1956,7 @@ export class NodeSpecificValidators {
 
       // `items` is the JavaScript Code node's variable, not a Python one. The
       // guard keeps `d.items()` and `for k, v in data.items():` out of it.
-      if (this.pythonHasUnboundReference(scopeIndex, 'items', /(?<![\w.])items\b(?!\s*\()/)) {
+      if (this.pythonHasUnboundReference(scopeIndex, 'items', /(?<![\w.])items\b(?![ \t]*=(?!=))/)) {
         errors.push({
           type: 'invalid_value',
           property: 'pythonCode',
@@ -1891,7 +1970,7 @@ export class NodeSpecificValidators {
     // mode is an expression (resolved at runtime), and when the code binds the
     // name itself - then it is an ordinary local, not the runtime global.
     if (modeIsKnown && scopeIndex) {
-      if (isEachItem && this.pythonHasUnboundReference(scopeIndex, '_items', /\b_items\b/)) {
+      if (isEachItem && this.pythonHasUnboundReference(scopeIndex, '_items', /(?<![\w.])_items\b/)) {
         errors.push({
           type: 'invalid_value',
           property: 'pythonCode',
@@ -1899,7 +1978,7 @@ export class NodeSpecificValidators {
           fix: 'Use _item, or switch mode to runOnceForAllItems'
         });
       }
-      if (!isEachItem && this.pythonHasUnboundReference(scopeIndex, '_item', /\b_item\b/)) {
+      if (!isEachItem && this.pythonHasUnboundReference(scopeIndex, '_item', /(?<![\w.])_item\b/)) {
         errors.push({
           type: 'invalid_value',
           property: 'pythonCode',
@@ -1948,7 +2027,10 @@ export class NodeSpecificValidators {
       }
       fromImportStatement.lastIndex = 0;
       while ((importMatch = fromImportStatement.exec(statement)) !== null) {
-        addModule(importMatch[1]);
+        // `from . import helper` has no module root; name what it pulls in, so
+        // a relative import is reported like any other.
+        if (rootModule(importMatch[1])) addModule(importMatch[1]);
+        else this.pythonImportBindings(statement).forEach(name => importedModules.add(name));
       }
     }
     for (const moduleName of importedModules) {
@@ -1994,7 +2076,7 @@ export class NodeSpecificValidators {
     const formatFields = this.withinCapOrRaw(code, c => this.stripPythonStringsAndComments(c, true, true));
     if (/\.__\w+__/.test(scan) || /\b__class__\b/.test(scan) || /\b__builtins__\b/.test(scan)
         || /(?<![\w.])__import__[ \t]*\(/.test(scan)
-        || /\{[^{}\n]{0,200}\.__\w+__/.test(formatFields)) {
+        || this.pythonFormatsDunder(formatFields)) {
       errors.push({
         type: 'invalid_value',
         property: 'pythonCode',
@@ -2112,8 +2194,14 @@ export class NodeSpecificValidators {
         const strippedTopLevel = this.withinCapOrRaw(
           code, c => this.stripPythonFunctionBodies(this.stripPythonStringsAndComments(c))
         );
+        // Transparent parentheses don't change the shape: `return ([...])` is
+        // still a list, and fails the same way.
+        const parenthesisedList = (inner: string) =>
+          /^\[[\s\S]*\]$/.test(inner) || inner === '_items' || /^list[ \t]*\(/.test(inner);
+
         if (this.pythonReturnsWholeGroup(strippedTopLevel, /^[ \t]*return[ \t]+\[/)
             || this.pythonReturnsWholeGroup(strippedTopLevel, /^[ \t]*return[ \t]+list[ \t]*\(/)
+            || this.pythonReturnsWholeGroup(strippedTopLevel, /^[ \t]*return[ \t]*\(/, parenthesisedList)
             || /^[ \t]*return[ \t]+_items[ \t;]*$/m.test(strippedTopLevel)) {
           errors.push({
             type: 'invalid_value',
@@ -2130,7 +2218,7 @@ export class NodeSpecificValidators {
         const topLevel = this.withinCapOrRaw(
           code, c => this.stripPythonFunctionBodies(this.stripPythonStringsAndComments(c, true))
         );
-        if (/return\s+(?:(?:True|False|None)\b|\d|[rbfu]{0,2}['"])/m.test(topLevel)) {
+        if (/return\s+(?:(?:True|False|None)\b|[+-]?(?:\d|\.\d)|[rbfu]{0,2}['"])/m.test(topLevel)) {
           errors.push({
             type: 'invalid_value',
             property: 'pythonCode',
@@ -2149,7 +2237,11 @@ export class NodeSpecificValidators {
    *
    * `prefix` must end at the opening bracket and be anchored at line start.
    */
-  private static pythonReturnsWholeGroup(scan: string, prefix: RegExp): boolean {
+  private static pythonReturnsWholeGroup(
+    scan: string,
+    prefix: RegExp,
+    innerTest?: (inner: string) => boolean
+  ): boolean {
     const matcher = new RegExp(prefix.source, 'gm');
     let budget = MAX_RETURN_TOTAL_SCAN;
     let match: RegExpExecArray | null;
@@ -2177,7 +2269,11 @@ export class NodeSpecificValidators {
       // list, `return [...][0]` returns one element.
       const lineEnd = scan.indexOf('\n', closed);
       const rest = scan.slice(closed + 1, lineEnd === -1 ? scan.length : lineEnd);
-      if (rest.replace(/;+[ \t]*$/, '').trim() === '') return true;
+      if (rest.replace(/;+[ \t]*$/, '').trim() !== '') continue;
+      if (!innerTest) return true;
+
+      const opened = match.index + match[0].length - 1;
+      if (innerTest(scan.slice(opened + 1, closed).trim())) return true;
     }
 
     return false;

@@ -1420,6 +1420,12 @@ elif count % 2:
 else:
     median = (ordered[count // 2 - 1] + ordered[count // 2]) / 2
 
+# Sample standard deviation, the same value statistics.stdev returned
+if count > 1:
+    stdev = (sum((x - mean) ** 2 for x in ordered) / (count - 1)) ** 0.5
+else:
+    stdev = 0
+
 result = {
     "itemCount": len(_items),
     "values": {
@@ -1428,7 +1434,8 @@ result = {
         "mean": mean,
         "median": median,
         "min": ordered[0] if ordered else 0,
-        "max": ordered[-1] if ordered else 0
+        "max": ordered[-1] if ordered else 0,
+        "stdev": stdev
     },
     "categories": categories,
     "dateRange": {

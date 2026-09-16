@@ -356,6 +356,8 @@ describe('TaskTemplates', () => {
       expect(template?.configuration.pythonCode).toContain('_items');
       expect(template?.configuration.pythonCode).not.toContain('_input');
       expect(template?.configuration.pythonCode).not.toContain('import ');
+      // The output contract still carries stdev, computed without statistics
+      expect(template?.configuration.pythonCode).toContain('"stdev": stdev');
     });
   });
 

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { EnhancedConfigValidator } from '@/services/enhanced-config-validator';
 import { NodeSpecificValidators } from '@/services/node-specific-validators';
+import { MCPEngine } from '@/mcp-tools-engine';
 
 /**
  * These run the real validation chain (base ConfigValidator +
@@ -226,5 +227,63 @@ describe('EnhancedConfigValidator - required-field reporting', () => {
     const result = validate(nodeType as string, config as Record<string, any>, properties as any[]);
 
     expect(result.errors.filter(e => e.property === property && e.type === 'missing_required')).toHaveLength(1);
+  });
+});
+
+/**
+ * The embedding API (MCPEngine) must see the same Python checks as validate_node
+ * and workflow validation - it used to call the base ConfigValidator directly.
+ */
+describe('MCPEngine.validateNodeOperation - Python Code node', () => {
+  const codeNode = {
+    nodeType: 'nodes-base.code',
+    properties: [
+      { name: 'language', type: 'options', options: [{ value: 'javaScript' }, { value: 'pythonNative' }] },
+      { name: 'mode', type: 'options', options: [{ value: 'runOnceForAllItems' }, { value: 'runOnceForEachItem' }] },
+      { name: 'pythonCode', type: 'string' },
+      { name: 'jsCode', type: 'string' }
+    ]
+  };
+
+  const engine = new MCPEngine({
+    getNodeByType: async () => codeNode
+  } as any);
+
+  it('should run the native-Python rules', async () => {
+    const result: any = await engine.validateNodeOperation({
+      nodeType: 'nodes-base.code',
+      config: {
+        language: 'pythonNative',
+        mode: 'runOnceForAllItems',
+        pythonCode: 'rows = _input.all()\nreturn [{"json": {"n": len(rows)}}]'
+      }
+    });
+
+    expect(result.errors).toContainEqual(expect.objectContaining({
+      property: 'pythonCode',
+      message: '_input does not exist in native Python - it was removed with the Pyodide runtime'
+    }));
+  });
+
+  it('should warn about a blocked import', async () => {
+    const result: any = await engine.validateNodeOperation({
+      nodeType: 'nodes-base.code',
+      config: {
+        language: 'pythonNative',
+        mode: 'runOnceForAllItems',
+        pythonCode: 'import json\nreturn [{"json": {"n": len(_items)}}]'
+      }
+    });
+
+    expect(result.warnings.some((w: any) => w.message.includes('import json is blocked'))).toBe(true);
+  });
+
+  it('should not report empty code for pythonNative', async () => {
+    const result: any = await engine.validateNodeOperation({
+      nodeType: 'nodes-base.code',
+      config: { language: 'pythonNative', mode: 'runOnceForEachItem', pythonCode: 'return {"json": _item["json"]}' }
+    });
+
+    expect(result.valid).toBe(true);
   });
 });
