@@ -1107,6 +1107,10 @@ export async function handleUpdateWorkflow(
   // persisted the folder move (write-only in n8n, so it can be neither read back nor
   // rolled back), and the error path below must say so.
   let sentParentFolderId = false;
+  // The merged payload sent to the failed PUT. On PUBLISH_FORBIDDEN, n8n saves this as a
+  // draft — the failure telemetry should reflect that content, not silently claim
+  // "no change" by reusing workflowBefore.
+  let attemptedWorkflow: any = null;
 
   try {
     const client = ensureApiConfigured(context);
@@ -1181,6 +1185,7 @@ export async function handleUpdateWorkflow(
     if (nodeGroupsUpdate !== undefined) {
       fullWorkflow.nodeGroups = nodeGroupsUpdate;
     }
+    attemptedWorkflow = fullWorkflow;
 
     // Backup + structure validation when the graph or its grouping changed.
     if (updateData.nodes || updateData.connections || nodeGroupsUpdate !== undefined) {
@@ -1257,13 +1262,20 @@ export async function handleUpdateWorkflow(
   } catch (error) {
     // Track failed mutation
     if (workflowBefore) {
+      // PUBLISH_FORBIDDEN means n8n persisted the attempted payload as a draft even
+      // though the PUT threw — workflowBefore would misreport "no change". Use the
+      // attempted payload when we have one; otherwise omit workflowAfter rather than
+      // claim an unchanged state we cannot confirm.
+      const isPublishForbidden = error instanceof N8nApiError && error.code === 'PUBLISH_FORBIDDEN';
       void trackWorkflowMutationForFullUpdate({
         sessionId,
         toolName: 'n8n_update_full_workflow',
         userIntent,
         operations: [],
         workflowBefore,
-        workflowAfter: workflowBefore, // No change since it failed
+        ...(isPublishForbidden
+          ? (attemptedWorkflow ? { workflowAfter: attemptedWorkflow } : {})
+          : { workflowAfter: workflowBefore }), // No change since it failed
         mutationSuccess: false,
         mutationError: error instanceof Error ? error.message : 'Unknown error',
         durationMs: Date.now() - startTime,
@@ -1277,6 +1289,24 @@ export async function handleUpdateWorkflow(
         success: false,
         error: 'Invalid input',
         details: { errors: error.errors }
+      };
+    }
+
+    if (error instanceof N8nApiError && error.code === 'PUBLISH_FORBIDDEN') {
+      const body = error.details as { reason?: string; versionId?: string } | undefined;
+      return {
+        success: false,
+        error: 'n8n did not publish this change. The published version is unchanged; ' +
+          `the change was saved as a draft${body?.versionId ? ` (id: ${body.versionId})` : ''}. ` +
+          'Retrying with the same credentials will save another draft without publishing it. ' +
+          'The API key needs the workflow:activate scope, and the user needs workflow:publish permission on this workflow.',
+        code: error.code,
+        details: {
+          reason: body?.reason,
+          draftVersionId: body?.versionId,
+          publishedVersionUnchanged: true,
+          ...(sentParentFolderId ? { folderMoveMayHavePersisted: true } : {})
+        }
       };
     }
 
@@ -1633,6 +1663,10 @@ export async function handleAutofixWorkflow(
         return {
           success: false,
           error: 'Failed to apply fixes',
+          // Pass the partial-update failure's code through (e.g. PUBLISH_FORBIDDEN) so
+          // callers can tell a publish refusal apart from a generic update failure
+          // instead of having to parse updateError.
+          ...(updateResult.code ? { code: updateResult.code } : {}),
           details: {
             fixes: fixResult.fixes,
             updateError: updateResult.error

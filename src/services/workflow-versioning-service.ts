@@ -9,6 +9,7 @@ import { NodeRepository } from '../database/node-repository';
 import { N8nApiClient } from './n8n-api-client';
 import { WorkflowValidator } from './workflow-validator';
 import { EnhancedConfigValidator } from './enhanced-config-validator';
+import { N8nApiError } from '../utils/n8n-errors';
 
 export interface WorkflowVersion {
   id: number;
@@ -288,6 +289,21 @@ export class WorkflowVersioningService {
         ...(warnings.length > 0 ? { warnings } : {})
       };
     } catch (error: any) {
+      // PUBLISH_FORBIDDEN (n8n 2.39+): the restore PUT was saved as a draft, not
+      // published, because the caller may edit but not publish. Say so plainly
+      // rather than surfacing n8n's raw "saved as a draft" message under a
+      // "Failed to restore" prefix, which reads as if nothing happened at all.
+      if (error instanceof N8nApiError && error.code === 'PUBLISH_FORBIDDEN') {
+        const reason = (error.details as { reason?: string } | undefined)?.reason;
+        return {
+          success: false,
+          message: `Failed to restore workflow: the content was saved as a draft but not published${reason ? ` (${reason})` : ''}. The published version is unchanged. The draft now holds the restored snapshot, so publishing it completes the restore.`,
+          workflowId,
+          toVersionId: versionToRestore.id,
+          backupCreated: true,
+          backupVersionId: backupResult.versionId
+        };
+      }
       return {
         success: false,
         message: `Failed to restore workflow: ${error.message}`,

@@ -434,12 +434,45 @@ export async function handleUpdatePartialWorkflow(
             ? compareVersions(serverState, workflowBefore)
             : 'unknown';
 
-          if (versionState === 'same') {
+          const isPublishForbidden = updateError instanceof N8nApiError && updateError.code === 'PUBLISH_FORBIDDEN';
+          // n8n 2.39 does not bump versionId for name/settings-only changes, so a
+          // PUBLISH_FORBIDDEN 403 reporting the same versionId does not guarantee
+          // nothing persisted. For this error, decide with content instead of version:
+          // only treat it as "nothing persisted" when the content also matches. A
+          // content mismatch here means the change persisted despite the unchanged
+          // versionId, so it falls through to the rollback attempt below like any
+          // other persist-then-fail case.
+          const nothingPersisted = versionState === 'same'
+            && (!isPublishForbidden || sameWritableContent(serverState, workflowBefore));
+
+          if (nothingPersisted) {
             // Pre-save rejection: nothing to roll back.
             logger.debug('PUT failed before persisting; skipping rollback', {
               workflowId: input.id,
             });
             if (updateError instanceof N8nApiError) {
+              if (updateError.code === 'PUBLISH_FORBIDDEN') {
+                // n8n reports a persisted draft, but the version we can observe is
+                // unchanged and the content matches what was there before — the two
+                // signals disagree, so state that plainly instead of resolving it
+                // either way (e.g. by claiming there was nothing to roll back).
+                const body = updateError.details as { reason?: string; versionId?: string } | undefined;
+                const message = [
+                  `n8n reports it saved draft ${body?.versionId}, but the workflow's version is unchanged, so what persisted could not be confirmed.`,
+                  'The published version is unchanged.',
+                  'Retrying with the same credentials will not publish it — the API key needs the workflow:activate scope, and the user needs workflow:publish permission on this workflow.',
+                ].join(' ');
+                throw new N8nApiError(
+                  message,
+                  updateError.statusCode,
+                  updateError.code,
+                  {
+                    reason: body?.reason,
+                    draftVersionId: body?.versionId,
+                    rollbackPerformed: false,
+                  },
+                );
+              }
               throw new N8nApiError(
                 updateError.message,
                 updateError.statusCode,
@@ -457,13 +490,30 @@ export async function handleUpdatePartialWorkflow(
           let rollbackPerformed = false;
           let rollbackVerifiedAfterError = false;
           let rollbackErrorMessage: string | undefined;
+          // The versionId n8n reports on the verification GET taken after a
+          // rollback PUT errors (used only for the PUBLISH_FORBIDDEN path,
+          // where the rollback PUT itself is expected to 403 too).
+          let restoredDraftVersionId: string | undefined;
+          // True only when the rollback PUT failed AND the follow-up verification GET
+          // also failed — the draft's actual content (attempted change vs. restored) is
+          // genuinely unknown, as opposed to the verification GET succeeding and
+          // confirming the change is still there.
+          let rollbackVerificationFailed = false;
+          // True when the verification GET succeeded but the content matches neither
+          // workflowBefore (restored) nor the attempted change — the rollback PUT partly
+          // applied. Distinct from rollbackVerificationFailed: here we DID read the
+          // draft, we just don't recognize its content as either known state.
+          let partialRestoration = false;
+          // The versionId observed on that inconclusive readback, for partialRestoration only.
+          let observedDraftVersionId: string | undefined;
           try {
             // No authoredGroups here: restoring the graph matters, frames do not. If the snapshot's
             // groups no longer fit the server state, they are dropped rather than failing the rollback.
-            await client.updateWorkflow(input.id, workflowBefore, {
+            const restored = await client.updateWorkflow(input.id, workflowBefore, {
               onWarning: (message: string) => groupWarnings.push(message),
             });
             rollbackPerformed = true;
+            restoredDraftVersionId = (restored as any)?.versionId;
             logger.warn('updateWorkflow failed; rolled back to prior state', {
               workflowId: input.id,
               originalError: updateError instanceof Error ? updateError.message : String(updateError),
@@ -479,14 +529,30 @@ export async function handleUpdatePartialWorkflow(
               if (sameWritableContent(afterRollback, workflowBefore)) {
                 rollbackPerformed = true;
                 rollbackVerifiedAfterError = true;
+                // Only trust this versionId once the content is confirmed restored —
+                // otherwise afterRollback may still hold the failed change.
+                restoredDraftVersionId = (afterRollback as any)?.versionId;
                 logger.warn('rollback PUT errored but content matches the prior state; treating as rolled back', {
                   workflowId: input.id,
                   rollbackError: rollbackErrorMessage,
                 });
                 rollbackErrorMessage = undefined;
+              } else if (!diffResult.workflow || !sameWritableContent(afterRollback, diffResult.workflow)) {
+                // The readback succeeded but matches neither the pre-update snapshot NOR the
+                // attempted change — the rollback PUT partly applied. Report what we actually
+                // observed rather than guessing which of the two known states it's in.
+                partialRestoration = true;
+                observedDraftVersionId = (afterRollback as any)?.versionId;
+                logger.warn('rollback PUT errored and the readback matches neither the prior nor the attempted content', {
+                  workflowId: input.id,
+                  rollbackError: rollbackErrorMessage,
+                });
               }
+              // else: readback matches the attempted change exactly — the existing
+              // "remains as an unpublished draft" path below already covers it.
             } catch (verifyErr) {
               logger.debug('post-rollback verification GET failed', verifyErr);
+              rollbackVerificationFailed = true;
             }
 
             if (!rollbackPerformed) {
@@ -506,20 +572,102 @@ export async function handleUpdatePartialWorkflow(
             // and the move - if the failed PUT persisted - survives. Say so rather than
             // claiming a full restoration.
             const folderMoveInPayload = (diffResult.workflow as any)?.parentFolderId !== undefined;
+
+            // Shared across both the PUBLISH_FORBIDDEN and generic error paths below,
+            // since the same rollback outcome needs to be reported either way.
+            const folderMoveDetail = folderMoveInPayload && rollbackPerformed
+              ? { folderMoveMayHavePersisted: true }
+              : {};
+            const rollbackErrorDetail = rollbackErrorMessage
+              ? { rollbackError: rollbackErrorMessage }
+              : {};
+            const priorVersionDetail = workflowBefore.versionId
+              ? { priorVersionId: workflowBefore.versionId }
+              : {};
+            // A rollback can have to drop a canvas group the server no longer accepts. That is a
+            // real change to the restored workflow, so it must not be lost just because this path
+            // ends in an error rather than the success response. Same shape as the success path's
+            // warnings, so a client can read details.warnings without branching on the outcome.
+            const warningsDetail = groupWarnings.length > 0
+              ? { warnings: groupWarnings.map(message => ({ operation: -1, message })) }
+              : {};
+
+            if (updateError.code === 'PUBLISH_FORBIDDEN') {
+              // n8n's own message says the change "was saved as a draft" — true of the
+              // first PUT, but stale here: the rollback either superseded that draft
+              // with the content from before this update, or it didn't. Build a message
+              // that reflects the actual outcome instead of appending a contradictory
+              // suffix.
+              const body = updateError.details as { reason?: string; versionId?: string } | undefined;
+              // rollbackVerifiedAfterError only distinguishes HOW the rollback PUT was
+              // confirmed (it errored but content matched on a follow-up GET); a rollback
+              // PUT that returns 200 is just as clean and must not read as "did not
+              // complete". Keep rollbackVerifiedAfterError as a details-only field.
+              const rolledBackCleanly = rollbackPerformed;
+              let outcomeSentence: string;
+              let outcomeDetails: Record<string, unknown>;
+              if (rolledBackCleanly) {
+                outcomeSentence = 'The attempted change was rolled back, so the current draft matches the content from before this update.';
+                // Once rolled back, the 403 body's versionId names a draft the restore
+                // superseded.
+                outcomeDetails = {
+                  supersededDraftVersionId: body?.versionId,
+                  ...(restoredDraftVersionId ? { restoredDraftVersionId } : {}),
+                };
+              } else if (rollbackVerificationFailed) {
+                // The rollback PUT failed AND the verification GET also failed — we cannot
+                // tell which content the draft actually holds, so don't claim which draft
+                // (the attempted one or something else) is current.
+                outcomeSentence = 'The rollback could not be confirmed — the draft may hold the attempted change or the content from before this update. Use n8n_workflow_versions to check the current draft, or restore from a backup.';
+                outcomeDetails = { attemptedDraftVersionId: body?.versionId };
+              } else if (partialRestoration) {
+                // The readback succeeded but matches neither known state: the rollback PUT
+                // partly applied. Report what was actually observed instead of the stale
+                // 403-body versionId, which names neither this content nor a superseded draft.
+                outcomeSentence = 'The restore did not complete: the draft holds neither the attempted change nor the content from before this update. Use n8n_workflow_versions to check the current draft, or restore from a backup.';
+                outcomeDetails = observedDraftVersionId ? { observedDraftVersionId } : {};
+              } else {
+                // Verification GET succeeded and confirmed the attempted change is still there.
+                outcomeSentence = 'The change remains as an unpublished draft, and rollback did not complete. Use n8n_workflow_versions to check the current draft, or restore from a backup.';
+                outcomeDetails = { draftVersionId: body?.versionId, changeRetained: true };
+              }
+              const message = [
+                `n8n refused to publish the change${body?.reason ? ` (${body.reason})` : ''}.`,
+                'The published version is unchanged.',
+                outcomeSentence,
+                'Retrying with the same credentials will not publish it — the API key needs the workflow:activate scope, and the user needs workflow:publish permission on this workflow.',
+                folderMoveInPayload && rollbackPerformed
+                  ? 'A folder move in the failed update may have persisted — n8n cannot report or restore folder placement.'
+                  : '',
+              ].filter(Boolean).join(' ');
+
+              const publishForbiddenDetails: Record<string, unknown> = {
+                reason: body?.reason,
+                ...outcomeDetails,
+                ...priorVersionDetail,
+                rollbackPerformed,
+                ...(rollbackVerifiedAfterError ? { rollbackVerifiedAfterError: true } : {}),
+                ...folderMoveDetail,
+                ...rollbackErrorDetail,
+                ...warningsDetail,
+              };
+
+              throw new N8nApiError(
+                message,
+                updateError.statusCode,
+                updateError.code,
+                publishForbiddenDetails,
+              );
+            }
+
             const augmentedDetails: Record<string, unknown> = {
               ...((updateError.details as Record<string, unknown>) ?? {}),
               rollbackPerformed,
               ...(rollbackVerifiedAfterError ? { rollbackVerifiedAfterError: true } : {}),
-              ...(folderMoveInPayload && rollbackPerformed ? { folderMoveMayHavePersisted: true } : {}),
-              ...(rollbackErrorMessage ? { rollbackError: rollbackErrorMessage } : {}),
-              ...(workflowBefore.versionId ? { priorVersionId: workflowBefore.versionId } : {}),
-              // A rollback can have to drop a canvas group the server no longer accepts. That is a
-              // real change to the restored workflow, so it must not be lost just because this path
-              // ends in an error rather than the success response. Same shape as the success path's
-              // warnings, so a client can read details.warnings without branching on the outcome.
-              ...(groupWarnings.length > 0
-                ? { warnings: groupWarnings.map(message => ({ operation: -1, message })) }
-                : {}),
+              ...folderMoveDetail,
+              ...rollbackErrorDetail,
+              ...priorVersionDetail,
+              ...warningsDetail,
             };
             const suffix = rollbackPerformed
               ? (folderMoveInPayload
@@ -711,13 +859,28 @@ export async function handleUpdatePartialWorkflow(
     } catch (error) {
       // Track failed mutation
       if (workflowBefore && !input.validateOnly) {
+        // A PUT failure that went through the update-workflow rollback logic above (its
+        // details always carry `rollbackPerformed`, success or not) may have left the
+        // server in one of several states — workflowBefore would misreport "no change"
+        // for some of them. Report: the restored content when the rollback is confirmed
+        // (or direct) performed, the attempted content only when it's confirmed still
+        // retained, and omit workflowAfter when the outcome is unconfirmed or partial.
+        // Any other failure (never reached a PUT, or reached one that never persisted)
+        // keeps the old "no change" assumption.
+        const details = error instanceof N8nApiError ? (error.details as Record<string, unknown> | undefined) : undefined;
+        const wentThroughRollbackPath = !!details && Object.prototype.hasOwnProperty.call(details, 'rollbackPerformed');
+        const workflowAfterOverride: Record<string, unknown> = !wentThroughRollbackPath || details!.rollbackPerformed === true
+          ? { workflowAfter: workflowBefore }
+          : details!.changeRetained === true && diffResult?.workflow
+            ? { workflowAfter: diffResult.workflow }
+            : {};
         void trackWorkflowMutation({
           sessionId,
           toolName: 'n8n_update_partial_workflow',
           userIntent: input.intent || 'Partial workflow update',
           operations: input.operations,
           workflowBefore,
-          workflowAfter: workflowBefore, // No change since it failed
+          ...workflowAfterOverride,
           validationBefore,
           validationAfter: validationBefore, // Same as before since mutation failed
           mutationSuccess: false,

@@ -468,7 +468,8 @@ n8n_update_partial_workflow({
       'When properties are mutually exclusive (e.g., continueOnFail and onError), setting only the new property will fail - you must remove the old one with null',
       'Removing a required property may cause validation errors - check node documentation first',
       'Nested property removal with dot notation only removes the specific nested field, not the entire parent object',
-      'Array elements are addressed by index in bracket or dot form (e.g., "parameters.assignments.assignments[0].value" or "parameters.assignments.assignments.0.value") - out-of-range indices are rejected, so new elements cannot be appended this way'
+      'Array elements are addressed by index in bracket or dot form (e.g., "parameters.assignments.assignments[0].value" or "parameters.assignments.assignments.0.value") - out-of-range indices are rejected, so new elements cannot be appended this way',
+      '**code: "PUBLISH_FORBIDDEN"** (n8n 2.39+): the API key or user may edit a published workflow but not publish it. n8n rejects the save with 403; this tool rolls back the attempted change when the workflow\'s version changed after the failed save, otherwise the draft is kept. details.rollbackPerformed says whether that rollback happened at all; details.rollbackVerifiedAfterError only says it was confirmed by a read-back after the rollback PUT itself errored (a rollback PUT that returns 200 is just as clean but won\'t set it). Retrying with the same credentials will not publish - the API key needs the workflow:activate scope and the user needs workflow:publish permission on the workflow'
     ],
     relatedTools: ['n8n_update_full_workflow', 'n8n_get_workflow', 'validate_workflow', 'tools_documentation']
   }

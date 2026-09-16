@@ -1235,6 +1235,394 @@ describe('handlers-workflow-diff', () => {
       expect(result.details).not.toHaveProperty('rollbackError');
     });
 
+    it('should report PUBLISH_FORBIDDEN with a non-contradictory message when n8n refuses to publish on save', async () => {
+      // n8n 2.39+: PUT on a published workflow answers 403 with { message, reason, versionId }
+      // when the caller may edit but not publish. n8n has already saved the change as a draft.
+      // The rollback PUT hits the exact same 403 (the check is scope/permission-based, not
+      // content-based), so it also persists-then-throws; verify via GET like any other rollback.
+      const before = createTestWorkflow({ name: 'Original Workflow', versionId: 'v1' });
+      const attempted = createTestWorkflow({ name: 'Renamed Workflow', versionId: 'v1' });
+      const afterPersist = createTestWorkflow({ name: 'Renamed Workflow', versionId: 'draft-1' });
+      const afterRollback = createTestWorkflow({ name: 'Original Workflow', versionId: 'draft-2' });
+
+      const publishForbidden = new N8nApiError(
+        "Your change was saved as a draft. It wasn't published because this API key does not have the workflow:activate scope.",
+        403,
+        'PUBLISH_FORBIDDEN',
+        { reason: 'insufficient_api_key_scope', versionId: 'draft-1' },
+      );
+      const rollbackPublishForbidden = new N8nApiError(
+        "Your change was saved as a draft. It wasn't published because this API key does not have the workflow:activate scope.",
+        403,
+        'PUBLISH_FORBIDDEN',
+        { reason: 'insufficient_api_key_scope', versionId: 'draft-2' },
+      );
+
+      mockApiClient.getWorkflow
+        .mockResolvedValueOnce(before)
+        .mockResolvedValueOnce(afterPersist)
+        .mockResolvedValueOnce(afterRollback);
+      mockDiffEngine.applyDiff.mockResolvedValue({
+        success: true,
+        workflow: attempted,
+        operationsApplied: 1,
+        message: 'Success',
+        errors: [],
+      });
+      mockApiClient.updateWorkflow
+        .mockRejectedValueOnce(publishForbidden)
+        .mockRejectedValueOnce(rollbackPublishForbidden);
+
+      const result = await handleUpdatePartialWorkflow({
+        id: 'test-id',
+        operations: [{ type: 'updateName', name: 'Renamed Workflow' }],
+      }, mockRepository);
+
+      expect(mockApiClient.updateWorkflow).toHaveBeenCalledTimes(2);
+      expect(result.success).toBe(false);
+      expect(result.code).toBe('PUBLISH_FORBIDDEN');
+      expect(result.error).not.toContain('saved as a draft');
+      expect(result.error).toContain('published version is unchanged');
+      expect(result.error).toContain('current draft matches the content from before this update');
+      expect(result.details).toMatchObject({
+        reason: 'insufficient_api_key_scope',
+        supersededDraftVersionId: 'draft-1',
+        restoredDraftVersionId: 'draft-2',
+        priorVersionId: 'v1',
+        rollbackPerformed: true,
+        rollbackVerifiedAfterError: true,
+      });
+    });
+
+    it('reports a clean rollback and its versionId when the rollback PUT succeeds directly (200)', async () => {
+      // A rollback PUT that returns 200 (no throw) is at least as clean a restore as one that
+      // 403s and gets verified via GET — rollbackVerifiedAfterError only distinguishes HOW the
+      // rollback was confirmed, not whether it counts as clean. The reported restoredDraftVersionId
+      // comes straight off the rollback PUT's own response in this path.
+      const before = createTestWorkflow({ name: 'Original Workflow', versionId: 'v1' });
+      const attempted = createTestWorkflow({ name: 'Renamed Workflow', versionId: 'v1' });
+      const afterPersist = createTestWorkflow({ name: 'Renamed Workflow', versionId: 'draft-1' });
+      const restored = createTestWorkflow({ name: 'Original Workflow', versionId: 'draft-2' });
+
+      const publishForbidden = new N8nApiError(
+        "Your change was saved as a draft. It wasn't published because this API key does not have the workflow:activate scope.",
+        403,
+        'PUBLISH_FORBIDDEN',
+        { reason: 'insufficient_api_key_scope', versionId: 'draft-1' },
+      );
+
+      mockApiClient.getWorkflow
+        .mockResolvedValueOnce(before)
+        .mockResolvedValueOnce(afterPersist);
+      mockDiffEngine.applyDiff.mockResolvedValue({
+        success: true,
+        workflow: attempted,
+        operationsApplied: 1,
+        message: 'Success',
+        errors: [],
+      });
+      mockApiClient.updateWorkflow
+        .mockRejectedValueOnce(publishForbidden)
+        .mockResolvedValueOnce(restored);
+
+      const result = await handleUpdatePartialWorkflow({
+        id: 'test-id',
+        operations: [{ type: 'updateName', name: 'Renamed Workflow' }],
+      }, mockRepository);
+
+      expect(result.code).toBe('PUBLISH_FORBIDDEN');
+      expect(result.error).toContain('current draft matches the content from before this update');
+      expect(result.error).not.toContain('rollback did not complete');
+      expect(result.details).toMatchObject({
+        rollbackPerformed: true,
+        restoredDraftVersionId: 'draft-2',
+        supersededDraftVersionId: 'draft-1',
+      });
+      // A rollback PUT that returns 200 has nothing to "verify after error" — the field
+      // is only meaningful (and only emitted) when the rollback PUT itself errored.
+      expect(result.details).not.toHaveProperty('rollbackVerifiedAfterError');
+      // Telemetry: a confirmed rollback means the server holds the content from before
+      // this update, not the attempted change. The tracking call is fire-and-forget behind
+      // a dynamic import, so wait for it rather than asserting immediately.
+      await vi.waitFor(() => expect(telemetryMocks.trackWorkflowMutation).toHaveBeenCalled());
+      expect(telemetryMocks.trackWorkflowMutation).toHaveBeenCalledWith(
+        expect.objectContaining({ workflowAfter: expect.objectContaining({ name: 'Original Workflow' }) }),
+      );
+    });
+
+    it('reports the draft as unpublished, with no restoredDraftVersionId, when the rollback fails and the change is still live', async () => {
+      // The rollback PUT can fail for reasons unrelated to publish permission (e.g. a
+      // structural 400). When the verification GET shows the failed change is still there
+      // (not restored), the response must not claim a clean rollback or invent a versionId.
+      const before = createTestWorkflow({ name: 'Original Workflow', versionId: 'v1' });
+      const attempted = createTestWorkflow({ name: 'Renamed Workflow', versionId: 'v1' });
+      const afterPersist = createTestWorkflow({ name: 'Renamed Workflow', versionId: 'draft-1' });
+      const afterFailedRollback = createTestWorkflow({ name: 'Renamed Workflow', versionId: 'draft-1' });
+
+      const publishForbidden = new N8nApiError(
+        "Your change was saved as a draft. It wasn't published because this API key does not have the workflow:activate scope.",
+        403,
+        'PUBLISH_FORBIDDEN',
+        { reason: 'insufficient_api_key_scope', versionId: 'draft-1' },
+      );
+      const rollbackRejection = new N8nValidationError('Bad request', { field: 'connections' });
+
+      mockApiClient.getWorkflow
+        .mockResolvedValueOnce(before)
+        .mockResolvedValueOnce(afterPersist)
+        .mockResolvedValueOnce(afterFailedRollback);
+      mockDiffEngine.applyDiff.mockResolvedValue({
+        success: true,
+        workflow: attempted,
+        operationsApplied: 1,
+        message: 'Success',
+        errors: [],
+      });
+      mockApiClient.updateWorkflow
+        .mockRejectedValueOnce(publishForbidden)
+        .mockRejectedValueOnce(rollbackRejection);
+
+      const result = await handleUpdatePartialWorkflow({
+        id: 'test-id',
+        operations: [{ type: 'updateName', name: 'Renamed Workflow' }],
+      }, mockRepository);
+
+      expect(result.code).toBe('PUBLISH_FORBIDDEN');
+      expect(result.error).toContain('remains as an unpublished draft');
+      expect(result.error).toContain('rollback did not complete');
+      expect(result.error).toContain('n8n_workflow_versions');
+      expect(result.details).toMatchObject({
+        rollbackPerformed: false,
+        draftVersionId: 'draft-1',
+        changeRetained: true,
+      });
+      expect(result.details).not.toHaveProperty('supersededDraftVersionId');
+      expect(result.details).not.toHaveProperty('attemptedDraftVersionId');
+      expect(result.details).not.toHaveProperty('observedDraftVersionId');
+      expect(result.details).not.toHaveProperty('restoredDraftVersionId');
+      // The rollback PUT here never even errored — it flat-out failed with a validation
+      // error and no "verified after error" reconciliation ever ran.
+      expect(result.details).not.toHaveProperty('rollbackVerifiedAfterError');
+      // Telemetry: the attempted change is confirmed still there (changeRetained), so
+      // workflowAfter should be the attempted content, not workflowBefore.
+      await vi.waitFor(() => expect(telemetryMocks.trackWorkflowMutation).toHaveBeenCalled());
+      expect(telemetryMocks.trackWorkflowMutation).toHaveBeenCalledWith(
+        expect.objectContaining({ workflowAfter: expect.objectContaining({ name: 'Renamed Workflow' }) }),
+      );
+    });
+
+    it('reports the rollback as unconfirmed when the rollback PUT fails and the verification GET also fails', async () => {
+      // Unlike the "still live" case above (verification GET succeeds and shows the change is
+      // still there), here the verification GET itself throws — the handler genuinely does not
+      // know whether the draft holds the attempted change or was restored, and must say so
+      // rather than defaulting to either "rolled back" or "did not complete".
+      const before = createTestWorkflow({ name: 'Original Workflow', versionId: 'v1' });
+      const attempted = createTestWorkflow({ name: 'Renamed Workflow', versionId: 'v1' });
+      const afterPersist = createTestWorkflow({ name: 'Renamed Workflow', versionId: 'draft-1' });
+
+      const publishForbidden = new N8nApiError(
+        "Your change was saved as a draft. It wasn't published because this API key does not have the workflow:activate scope.",
+        403,
+        'PUBLISH_FORBIDDEN',
+        { reason: 'insufficient_api_key_scope', versionId: 'draft-1' },
+      );
+      const rollbackRejection = new N8nValidationError('Bad request', { field: 'connections' });
+
+      mockApiClient.getWorkflow
+        .mockResolvedValueOnce(before)
+        .mockResolvedValueOnce(afterPersist)
+        .mockRejectedValueOnce(new Error('GET failed')); // verification GET also fails
+      mockDiffEngine.applyDiff.mockResolvedValue({
+        success: true,
+        workflow: attempted,
+        operationsApplied: 1,
+        message: 'Success',
+        errors: [],
+      });
+      mockApiClient.updateWorkflow
+        .mockRejectedValueOnce(publishForbidden)
+        .mockRejectedValueOnce(rollbackRejection);
+
+      const result = await handleUpdatePartialWorkflow({
+        id: 'test-id',
+        operations: [{ type: 'updateName', name: 'Renamed Workflow' }],
+      }, mockRepository);
+
+      expect(result.code).toBe('PUBLISH_FORBIDDEN');
+      expect(result.error).toContain('could not be confirmed');
+      expect(result.error).toContain('n8n_workflow_versions');
+      expect(result.error).not.toContain('rolled back, so the current draft matches');
+      expect(result.error).not.toContain('rollback did not complete');
+      expect(result.details).toMatchObject({
+        rollbackPerformed: false,
+        // Names the draft the first PUT reported, which the rollback attempt may have
+        // superseded — NOT `draftVersionId`, which would wrongly claim it's still current.
+        attemptedDraftVersionId: 'draft-1',
+      });
+      expect(result.details).not.toHaveProperty('draftVersionId');
+      expect(result.details).not.toHaveProperty('supersededDraftVersionId');
+      expect(result.details).not.toHaveProperty('restoredDraftVersionId');
+      expect(result.details).not.toHaveProperty('rollbackVerifiedAfterError');
+      // Telemetry: the outcome is unconfirmed, so workflowAfter must be omitted rather
+      // than guessed.
+      await vi.waitFor(() => expect(telemetryMocks.trackWorkflowMutation).toHaveBeenCalled());
+      const [telemetryArgs] = telemetryMocks.trackWorkflowMutation.mock.calls.at(-1)!;
+      expect(telemetryArgs).not.toHaveProperty('workflowAfter');
+    });
+
+    it('reports an incomplete restore when the verification GET matches neither the prior nor the attempted content', async () => {
+      // The rollback PUT errored, and the readback succeeded, but it holds a THIRD content —
+      // neither workflowBefore (restored) nor the attempted change (still live). This is
+      // distinct from both other rollback-failed states: unlike the "still live" case, the
+      // draft did change; unlike "unconfirmed", we DID read it, we just don't recognize it.
+      const before = createTestWorkflow({ name: 'Original Workflow', versionId: 'v1' });
+      const attempted = createTestWorkflow({ name: 'Renamed Workflow', versionId: 'v1' });
+      const afterPersist = createTestWorkflow({ name: 'Renamed Workflow', versionId: 'draft-1' });
+      const partiallyRestored = createTestWorkflow({ name: 'Partially Restored Workflow', versionId: 'draft-3' });
+
+      const publishForbidden = new N8nApiError(
+        "Your change was saved as a draft. It wasn't published because this API key does not have the workflow:activate scope.",
+        403,
+        'PUBLISH_FORBIDDEN',
+        { reason: 'insufficient_api_key_scope', versionId: 'draft-1' },
+      );
+      const rollbackRejection = new N8nValidationError('Bad request', { field: 'connections' });
+
+      mockApiClient.getWorkflow
+        .mockResolvedValueOnce(before)
+        .mockResolvedValueOnce(afterPersist)
+        .mockResolvedValueOnce(partiallyRestored);
+      mockDiffEngine.applyDiff.mockResolvedValue({
+        success: true,
+        workflow: attempted,
+        operationsApplied: 1,
+        message: 'Success',
+        errors: [],
+      });
+      mockApiClient.updateWorkflow
+        .mockRejectedValueOnce(publishForbidden)
+        .mockRejectedValueOnce(rollbackRejection);
+
+      const result = await handleUpdatePartialWorkflow({
+        id: 'test-id',
+        operations: [{ type: 'updateName', name: 'Renamed Workflow' }],
+      }, mockRepository);
+
+      expect(result.code).toBe('PUBLISH_FORBIDDEN');
+      expect(result.error).toContain('restore did not complete');
+      expect(result.error).toContain('neither the attempted change nor the content from before this update');
+      expect(result.error).toContain('n8n_workflow_versions');
+      expect(result.error).not.toContain('rolled back, so the current draft matches');
+      expect(result.error).not.toContain('could not be confirmed');
+      expect(result.details).toMatchObject({
+        rollbackPerformed: false,
+        observedDraftVersionId: 'draft-3',
+      });
+      expect(result.details).not.toHaveProperty('draftVersionId');
+      expect(result.details).not.toHaveProperty('attemptedDraftVersionId');
+      expect(result.details).not.toHaveProperty('supersededDraftVersionId');
+      expect(result.details).not.toHaveProperty('restoredDraftVersionId');
+      expect(result.details).not.toHaveProperty('changeRetained');
+      // Telemetry: a partial restore is neither state, so workflowAfter must be omitted.
+      await vi.waitFor(() => expect(telemetryMocks.trackWorkflowMutation).toHaveBeenCalled());
+      const [telemetryArgs] = telemetryMocks.trackWorkflowMutation.mock.calls.at(-1)!;
+      expect(telemetryArgs).not.toHaveProperty('workflowAfter');
+    });
+
+    it('reports that what persisted could not be confirmed when both the version and content are unchanged after the failed PUT', async () => {
+      // versionState === 'same' AND the content also matches workflowBefore: the two most
+      // reliable signals agree that nothing persisted, but n8n's 403 body still names a draft
+      // it says it saved. State the contradiction rather than resolving it either way.
+      const before = createTestWorkflow({ name: 'Original Workflow', versionId: 'v1' });
+      const attempted = createTestWorkflow({ name: 'Renamed Workflow', versionId: 'v1' });
+
+      const publishForbidden = new N8nApiError(
+        "Your change was saved as a draft. It wasn't published because this API key does not have the workflow:activate scope.",
+        403,
+        'PUBLISH_FORBIDDEN',
+        { reason: 'insufficient_api_key_scope', versionId: 'draft-1' },
+      );
+
+      mockApiClient.getWorkflow
+        .mockResolvedValueOnce(before)
+        .mockResolvedValueOnce(before); // GET after failure: same version AND same content
+      mockDiffEngine.applyDiff.mockResolvedValue({
+        success: true,
+        workflow: attempted,
+        operationsApplied: 1,
+        message: 'Success',
+        errors: [],
+      });
+      mockApiClient.updateWorkflow.mockRejectedValueOnce(publishForbidden);
+
+      const result = await handleUpdatePartialWorkflow({
+        id: 'test-id',
+        operations: [{ type: 'updateName', name: 'Renamed Workflow' }],
+      }, mockRepository);
+
+      expect(mockApiClient.updateWorkflow).toHaveBeenCalledTimes(1); // no rollback PUT attempted
+      expect(result.code).toBe('PUBLISH_FORBIDDEN');
+      expect(result.error).toContain('n8n reports it saved draft draft-1');
+      expect(result.error).toContain("workflow's version is unchanged");
+      expect(result.error).toContain('could not be confirmed');
+      expect(result.error).toContain('published version is unchanged');
+      expect(result.details).toMatchObject({
+        reason: 'insufficient_api_key_scope',
+        draftVersionId: 'draft-1',
+        rollbackPerformed: false,
+      });
+      expect(result.details).not.toHaveProperty('supersededDraftVersionId');
+      expect(result.details).not.toHaveProperty('restoredDraftVersionId');
+    });
+
+    it('attempts rollback when the version is unchanged but the content differs (n8n does not bump versionId for name/settings-only changes)', async () => {
+      // n8n 2.39 does not bump versionId for name/settings-only changes. A PUBLISH_FORBIDDEN
+      // 403 reporting the same versionId must not be trusted blindly — check content instead,
+      // and treat a mismatch as a persisted change requiring rollback.
+      const before = createTestWorkflow({ name: 'Original Workflow', versionId: 'v1' });
+      const attempted = createTestWorkflow({ name: 'Renamed Workflow', versionId: 'v1' });
+      // Same versionId as `before`, but the content differs: exactly what n8n 2.39 does for a
+      // name-only change that persists without bumping versionId.
+      const afterPersistSameVersion = createTestWorkflow({ name: 'Renamed Workflow', versionId: 'v1' });
+      const restored = createTestWorkflow({ name: 'Original Workflow', versionId: 'v1' });
+
+      const publishForbidden = new N8nApiError(
+        "Your change was saved as a draft. It wasn't published because this API key does not have the workflow:activate scope.",
+        403,
+        'PUBLISH_FORBIDDEN',
+        { reason: 'insufficient_api_key_scope', versionId: 'draft-1' },
+      );
+
+      mockApiClient.getWorkflow
+        .mockResolvedValueOnce(before)
+        .mockResolvedValueOnce(afterPersistSameVersion);
+      mockDiffEngine.applyDiff.mockResolvedValue({
+        success: true,
+        workflow: attempted,
+        operationsApplied: 1,
+        message: 'Success',
+        errors: [],
+      });
+      mockApiClient.updateWorkflow
+        .mockRejectedValueOnce(publishForbidden)
+        .mockResolvedValueOnce(restored);
+
+      const result = await handleUpdatePartialWorkflow({
+        id: 'test-id',
+        operations: [{ type: 'updateName', name: 'Renamed Workflow' }],
+      }, mockRepository);
+
+      // Two PUTs means the handler went through the rollback attempt rather than the
+      // "nothing persisted" shortcut, despite the unchanged versionId.
+      expect(mockApiClient.updateWorkflow).toHaveBeenCalledTimes(2);
+      expect(result.code).toBe('PUBLISH_FORBIDDEN');
+      expect(result.error).toContain('rolled back, so the current draft matches the content from before this update');
+      expect(result.details).toMatchObject({
+        rollbackPerformed: true,
+        supersededDraftVersionId: 'draft-1',
+      });
+    });
+
     it('should still report rollback failure when the content was not restored', async () => {
       // The verification must not turn every rollback failure into a success: if the server still
       // holds the attempted change, the warning has to stand.

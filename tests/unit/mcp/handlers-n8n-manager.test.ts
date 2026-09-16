@@ -2409,6 +2409,36 @@ describe('handlers-n8n-manager', () => {
     });
   });
 
+  describe('handleUpdateWorkflow - PUBLISH_FORBIDDEN (n8n 2.39+ publish-on-save, #1118)', () => {
+    it('reports draft/publish state honestly when n8n refuses to publish on save', async () => {
+      mockApiClient.getWorkflow.mockResolvedValue(createTestWorkflow({ id: 'wf-1' }));
+      const publishForbidden = new N8nApiError(
+        "Your change was saved as a draft. It wasn't published because this API key does not have the workflow:activate scope.",
+        403,
+        'PUBLISH_FORBIDDEN',
+        { reason: 'insufficient_api_key_scope', versionId: 'draft-1' },
+      );
+      mockApiClient.updateWorkflow.mockRejectedValue(publishForbidden);
+
+      const result = await handlers.handleUpdateWorkflow({ id: 'wf-1', name: 'Renamed' });
+
+      expect(result.success).toBe(false);
+      expect(result.code).toBe('PUBLISH_FORBIDDEN');
+      expect(result.error).toContain('n8n did not publish this change');
+      expect(result.error).toContain('published version is unchanged');
+      expect(result.error).toContain('draft');
+      expect(result.error).toContain('draft-1');
+      expect(result.error).toContain('another draft without publishing');
+      expect(result.error).toContain('workflow:activate');
+      expect(result.error).toContain('workflow:publish');
+      expect(result.details).toMatchObject({
+        reason: 'insufficient_api_key_scope',
+        draftVersionId: 'draft-1',
+        publishedVersionUnchanged: true,
+      });
+    });
+  });
+
   describe('handleUpdateWorkflow - credential preservation', () => {
     function mockCurrentWorkflow(nodes: any[]): void {
       const workflow = createTestWorkflow({ id: 'wf-1', active: false, nodes });
