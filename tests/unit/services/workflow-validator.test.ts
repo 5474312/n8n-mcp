@@ -902,6 +902,19 @@ describe('WorkflowValidator', () => {
     // A conditional node's error output sits after its RULE outputs, not after a flat "main"
     // count - getConditionalOutputInfo supplies that count, and fallbackOutput: 'extra' shifts
     // it by one more.
+    it('counts four outputs for a Switch v1 so its error output is main[4]', async () => {
+      const result = await validator.validateWorkflow({
+        nodes: [
+          { id: '1', name: 'Switch', type: 'n8n-nodes-base.switch', typeVersion: 1, position: [0, 0], onError: 'continueErrorOutput',
+            parameters: { rules: { rules: [{ outputKey: 'a' }] } } },
+          { id: '2', name: 'Next', type: 'n8n-nodes-base.set', position: [200, 0], parameters: {} },
+        ],
+        connections: { 'Switch': { main: [[{ node: 'Next', type: 'main', index: 0 }], [], [], [{ node: 'Next', type: 'main', index: 0 }]] } },
+      } as any);
+      expect(result.errors.some(e => e.message.includes('exceeds its output count'))).toBe(false);
+      expect(result.warnings.some(w => w.nodeName === 'Switch' && w.message.includes('main[4]'))).toBe(true);
+    });
+
     it('counts an expression-mode Switch by numberOutputs, ignoring a retained rule collection', async () => {
       const result = await validator.validateWorkflow({
         nodes: [

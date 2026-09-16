@@ -441,8 +441,9 @@ export function validateWorkflowStructure(workflow: Partial<Workflow>): string[]
       if (disconnectedNodes.length > 0) {
         const disconnectedList = disconnectedNodes.map(n => `"${n.name}" (${n.type})`).join(', ');
         const firstDisconnected = disconnectedNodes[0];
-        const suggestedSource = workflow.nodes.find(n => connectedNodes.has(n.name))?.name
-          || workflow.nodes.find(n => n.name !== firstDisconnected.name)?.name
+        // Suggest a connected executable node as the source; a sticky note is never one.
+        const suggestedSource = workflow.nodes.find(n => connectedNodes.has(n.name) && !isNonExecutableNode(n.type))?.name
+          || workflow.nodes.find(n => n.name !== firstDisconnected.name && !isNonExecutableNode(n.type))?.name
           || firstDisconnected.name;
 
         errors.push(`Disconnected nodes detected: ${disconnectedList}. Each node must have at least one connection. Add a connection: {type: 'addConnection', source: '${suggestedSource}', target: '${firstDisconnected.name}', sourcePort: 'main', targetPort: 'main'}`);

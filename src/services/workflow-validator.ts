@@ -1498,7 +1498,7 @@ export class WorkflowValidator {
     }
     if (shortType === 'switch') {
       // Switch v1 has four fixed outputs whatever its rules say.
-      if ((sourceNode.typeVersion || 1) < 2) return null;
+      if ((sourceNode.typeVersion || 1) < 2) return { shortType, expectedOutputs: 4 };
       const params = sourceNode.parameters as any;
       // Expression mode routes by `output` into `numberOutputs` outputs; a retained rule
       // collection is ignored by n8n and must not set the count.

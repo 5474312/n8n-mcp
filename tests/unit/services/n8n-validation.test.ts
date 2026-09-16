@@ -3332,4 +3332,20 @@ describe('n8n-validation', () => {
       });
     });
   });
+  describe('disconnected-node suggestion (#1101)', () => {
+    it('never proposes a sticky note or a self-loop as the source', () => {
+      const errors = validateWorkflowStructure({
+        name: 'Orphans with a note',
+        nodes: [
+          { id: '1', name: 'A', type: 'n8n-nodes-base.noOp', typeVersion: 1, position: [0, 0], parameters: {} },
+          { id: '2', name: 'B', type: 'n8n-nodes-base.noOp', typeVersion: 1, position: [0, 0], parameters: {} },
+          { id: '3', name: 'Note', type: 'n8n-nodes-base.stickyNote', typeVersion: 1, position: [0, 0], parameters: {} },
+        ],
+        connections: { A: { main: [[]] }, B: { main: [null] } },
+      } as unknown as Partial<Workflow>);
+      const suggestion = errors.find(e => e.includes('Disconnected nodes'));
+      expect(suggestion).toContain("source: 'B', target: 'A'");
+    });
+  });
+
 });
