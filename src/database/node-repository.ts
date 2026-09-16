@@ -899,9 +899,10 @@ export class NodeRepository {
       "SELECT COUNT(*) as count FROM nodes WHERE is_community = 1 AND npm_readme IS NOT NULL AND npm_readme != '' AND npm_readme != ?"
     ).get(NPM_MISSING_README_PLACEHOLDER) as any).count;
 
+    // Only summaries of rows that count as having a README, so needingAISummary cannot go negative.
     const withAISummary = (this.db.prepare(
-      "SELECT COUNT(*) as count FROM nodes WHERE is_community = 1 AND ai_documentation_summary IS NOT NULL AND ai_documentation_summary != ''"
-    ).get() as any).count;
+      "SELECT COUNT(*) as count FROM nodes WHERE is_community = 1 AND npm_readme IS NOT NULL AND npm_readme != '' AND npm_readme != ? AND ai_documentation_summary IS NOT NULL AND ai_documentation_summary != ''"
+    ).get(NPM_MISSING_README_PLACEHOLDER) as any).count;
 
     return {
       total,

@@ -228,7 +228,7 @@ export class DocumentationBatchProcessor {
     let nodes = skipExisting
       ? this.repository.getCommunityNodesWithoutAISummary()
       : this.repository.getCommunityNodes({ orderBy: 'downloads' }).filter(
-          (n) => n.npmReadme && n.npmReadme.length > 0
+          (n) => n.npmReadme && n.npmReadme.length > 0 && n.npmReadme !== NPM_MISSING_README_PLACEHOLDER
         );
 
     if (limit) {

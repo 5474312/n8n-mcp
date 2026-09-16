@@ -802,7 +802,13 @@ describe('NodeRepository Integration Tests', () => {
     });
 
     it('does not count a stored placeholder as a README in the documentation stats', () => {
-      expect(repository.getDocumentationStats()).toMatchObject({ total: 3, withReadme: 1, needingReadme: 2 });
+      expect(repository.getDocumentationStats()).toEqual({
+        total: 3,
+        withReadme: 1,
+        withAISummary: 0,
+        needingReadme: 2,
+        needingAISummary: 1,
+      });
     });
 
     it('clears the README, the summary and its timestamp', () => {
