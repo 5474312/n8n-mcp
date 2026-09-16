@@ -2549,6 +2549,12 @@ return [{"json": {"result": result}}]
         });
       });
 
+      it('does not suggest JMESPath backticks when $jmespath only appears in a string', () => {
+        context.config = { language: 'javaScript', jsCode: 'return [{json: {note: "see $jmespath docs"}}];' };
+        NodeSpecificValidators.validateCode(context);
+        expect(context.suggestions.some(s => s.includes('JMESPath'))).toBe(false);
+      });
+
       it('should error on JMESPath numeric literals without backticks', () => {
         context.config = {
           language: 'javaScript',
@@ -2560,8 +2566,8 @@ return [{"json": {"result": result}}]
         expect(context.errors).toContainEqual({
           type: 'invalid_value',
           property: 'jsCode',
-          message: 'JMESPath numeric literal 18 must be wrapped in backticks',
-          fix: 'Change [?field >= 18] to [?field >= `18`]'
+          message: 'JMESPath literal 18 must be wrapped in backticks',
+          fix: 'Write >= `18`'
         });
       });
     });

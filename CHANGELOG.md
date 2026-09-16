@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.86.2] - 2026-09-16
+
+### Added
+
+- **`$jmespath()` queries inside `{{ }}` expressions are checked** ([#1114](https://github.com/czlonkowski/n8n-mcp/issues/1114)). n8n swallows JMESPath parse errors inside an expression, so the field resolves to `null` while the node reports success, and in a Filter or IF condition every item silently fails the check. `validate_workflow` now reads the query when it is a string literal and reports as errors a bare number in a comparison (`[?revenue > 100000]`; JMESPath literals are backtick-quoted), `and`/`or` in place of `&&`/`||`, a single `=` in place of `==`, and reversed arguments (`$jmespath("query", data)`). A double-quoted right-hand side (`== "PL"`, which JMESPath reads as an identifier) and a bare `true`/`false`/`null` (read as a field name) are warnings. Queries held in a variable or built with `${}` are not followed. The JavaScript Code-node checks use the same module, including for nested calls; Python `_jmespath` is no longer checked there because n8n 2.x native Python does not have it.
+
+### Fixed
+
+- **The "Possible missing $ prefix" warning no longer fires on words inside string literals** ([#1115](https://github.com/czlonkowski/n8n-mcp/issues/1115)). A JMESPath query over `.all()` items has to say `json.` because each item is a `{json: …}` wrapper, and the warning read that as a missing `$`. String, template and regex literal contents are blanked before the check; the bare words outside literals still warn. Over the 2,352 bundled templates this removed 60 of 73 such warnings and added no new finding.
 ## [2.86.1] - 2026-09-16
 
 ### Fixed

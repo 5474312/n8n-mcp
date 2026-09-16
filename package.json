@@ -1,6 +1,6 @@
 {
   "name": "n8n-mcp",
-  "version": "2.86.1",
+  "version": "2.86.2",
   "description": "Integration between n8n workflow automation and Model Context Protocol (MCP)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -44,7 +44,7 @@
     "test:unit": "vitest run tests/unit",
     "test:cjs-runtime": "node scripts/smoke-cjs-runtime.js",
     "test:integration": "vitest run --config vitest.config.integration.ts",
-    "test:integration:n8n": "vitest run --config vitest.config.integration.ts tests/integration/n8n-api",
+    "test:integration:n8n": "vitest run tests/integration/n8n-api",
     "test:cleanup:orphans": "tsx tests/integration/n8n-api/scripts/cleanup-orphans.ts",
     "test:e2e": "vitest run tests/e2e",
     "lint": "tsc --noEmit",
