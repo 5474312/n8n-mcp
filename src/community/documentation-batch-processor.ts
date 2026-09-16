@@ -194,11 +194,9 @@ export class DocumentationBatchProcessor {
       if (readme) {
         try {
           // A summary generated from a stored placeholder does not describe the README that replaces it.
-          if (node.npmReadme === NPM_MISSING_README_PLACEHOLDER) {
-            this.repository.updateNodeReadme(node.nodeType, readme, { clearSummary: true });
-          } else {
-            this.repository.updateNodeReadme(node.nodeType, readme);
-          }
+          this.repository.updateNodeReadme(node.nodeType, readme, {
+            clearSummary: node.npmReadme === NPM_MISSING_README_PLACEHOLDER,
+          });
           fetched++;
         } catch (error) {
           const msg = `Failed to save README for ${node.nodeType}: ${error}`;

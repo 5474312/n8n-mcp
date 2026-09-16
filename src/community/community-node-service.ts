@@ -558,10 +558,12 @@ export class CommunityNodeService {
     const storedByType = new Map(existingRows.map((row) => [row.nodeType, row]));
     for (const nodeType of nodeTypes) {
       const stored = storedByType.get(nodeType);
-      if (readme && !stored?.npmReadme) {
-        this.repository.updateNodeReadme(nodeType, readme);
+      // A row that stores the placeholder has no real docs: its README and summary are replaced.
+      const storesPlaceholder = stored?.npmReadme === NPM_MISSING_README_PLACEHOLDER;
+      if (readme && (!stored?.npmReadme || storesPlaceholder)) {
+        this.repository.updateNodeReadme(nodeType, readme, { clearSummary: storesPlaceholder });
       }
-      if (summary && !stored?.aiDocumentationSummary) {
+      if (summary && (!stored?.aiDocumentationSummary || storesPlaceholder)) {
         this.repository.updateNodeAISummary(nodeType, summary);
       }
     }

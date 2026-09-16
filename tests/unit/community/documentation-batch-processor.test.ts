@@ -214,7 +214,7 @@ describe('DocumentationBatchProcessor', () => {
       await processor.processAll({ readmeOnly: true });
 
       expect(mockFetcher.fetchReadmesBatch).toHaveBeenCalledTimes(1);
-      expect(mockRepository.updateNodeReadme).toHaveBeenCalledWith('node1', '# README content');
+      expect(mockRepository.updateNodeReadme).toHaveBeenCalledWith('node1', '# README content', { clearSummary: false });
     });
 
     it('does not summarise a stored npm placeholder', async () => {
@@ -283,7 +283,7 @@ describe('DocumentationBatchProcessor', () => {
       expect(mockRepository.updateNodeReadme).toHaveBeenCalledWith('pkg1.placeholder', '# Recovered README', {
         clearSummary: true,
       });
-      expect(mockRepository.updateNodeReadme).toHaveBeenCalledWith('pkg2.real', '# Newer README');
+      expect(mockRepository.updateNodeReadme).toHaveBeenCalledWith('pkg2.real', '# Newer README', { clearSummary: false });
     });
 
     it('records a failed placeholder cleanup and keeps storing the other READMEs', async () => {
@@ -309,7 +309,7 @@ describe('DocumentationBatchProcessor', () => {
 
       const result = await processor.processAll({ readmeOnly: true });
 
-      expect(mockRepository.updateNodeReadme).toHaveBeenCalledWith('pkg2.node', '# README');
+      expect(mockRepository.updateNodeReadme).toHaveBeenCalledWith('pkg2.node', '# README', { clearSummary: false });
       expect(result.readmesFetched).toBe(1);
       expect(result.errors).toEqual(
         expect.arrayContaining([expect.stringContaining('pkg1.placeholder')])
@@ -802,8 +802,8 @@ describe('DocumentationBatchProcessor', () => {
       expect(mockFetcher.fetchReadmesBatch).toHaveBeenCalledWith(['pkg1'], undefined, 5);
       // Both rows still get the README.
       expect(result.readmesFetched).toBe(2);
-      expect(mockRepository.updateNodeReadme).toHaveBeenCalledWith('pkg1.first', '# README');
-      expect(mockRepository.updateNodeReadme).toHaveBeenCalledWith('pkg1.second', '# README');
+      expect(mockRepository.updateNodeReadme).toHaveBeenCalledWith('pkg1.first', '# README', { clearSummary: false });
+      expect(mockRepository.updateNodeReadme).toHaveBeenCalledWith('pkg1.second', '# README', { clearSummary: false });
     });
   });
 
