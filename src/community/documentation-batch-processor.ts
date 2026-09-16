@@ -193,7 +193,12 @@ export class DocumentationBatchProcessor {
       const readme = readmeMap.get(node.npmPackageName);
       if (readme) {
         try {
-          this.repository.updateNodeReadme(node.nodeType, readme);
+          // A summary generated from a stored placeholder does not describe the README that replaces it.
+          if (node.npmReadme === NPM_MISSING_README_PLACEHOLDER) {
+            this.repository.updateNodeReadme(node.nodeType, readme, { clearSummary: true });
+          } else {
+            this.repository.updateNodeReadme(node.nodeType, readme);
+          }
           fetched++;
         } catch (error) {
           const msg = `Failed to save README for ${node.nodeType}: ${error}`;

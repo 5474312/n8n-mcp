@@ -260,6 +260,32 @@ describe('DocumentationBatchProcessor', () => {
       expect(mockRepository.clearNodeReadme).toHaveBeenCalledWith('pkg1.placeholder');
     });
 
+    it('drops the summary of a stored placeholder that a fetched README replaces', async () => {
+      const nodes = [
+        createMockCommunityNode({
+          nodeType: 'pkg1.placeholder',
+          npmPackageName: 'pkg1',
+          npmReadme: 'ERROR: No README data found!',
+        }),
+        createMockCommunityNode({ nodeType: 'pkg2.real', npmPackageName: 'pkg2', npmReadme: '# Older README' }),
+      ];
+
+      vi.mocked(mockRepository.getCommunityNodes).mockReturnValue(nodes);
+      vi.mocked(mockFetcher.fetchReadmesBatch).mockResolvedValue(
+        new Map([
+          ['pkg1', '# Recovered README'],
+          ['pkg2', '# Newer README'],
+        ])
+      );
+
+      await processor.processAll({ readmeOnly: true });
+
+      expect(mockRepository.updateNodeReadme).toHaveBeenCalledWith('pkg1.placeholder', '# Recovered README', {
+        clearSummary: true,
+      });
+      expect(mockRepository.updateNodeReadme).toHaveBeenCalledWith('pkg2.real', '# Newer README');
+    });
+
     it('records a failed placeholder cleanup and keeps storing the other READMEs', async () => {
       const nodes = [
         createMockCommunityNode({

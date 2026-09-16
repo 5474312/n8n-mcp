@@ -811,6 +811,21 @@ describe('NodeRepository Integration Tests', () => {
       });
     });
 
+    it('replaces a README and, when asked, drops the summary generated from the old one', () => {
+      repository.updateNodeReadme('n8n-nodes-docs.placeholder', '# Recovered README', { clearSummary: true });
+
+      const node = repository.getNode('n8n-nodes-docs.placeholder');
+      expect(node.npmReadme).toBe('# Recovered README');
+      expect(node.aiDocumentationSummary).toBeNull();
+      expect(node.aiSummaryGeneratedAt).toBeNull();
+    });
+
+    it('keeps the summary when a README is replaced without clearSummary', () => {
+      repository.updateNodeReadme('n8n-nodes-docs.placeholder', '# Recovered README');
+
+      expect(repository.getNode('n8n-nodes-docs.placeholder').aiDocumentationSummary).toEqual({ purpose: 'guessed' });
+    });
+
     it('clears the README, the summary and its timestamp', () => {
       repository.clearNodeReadme('n8n-nodes-docs.placeholder');
 

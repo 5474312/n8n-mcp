@@ -1188,6 +1188,17 @@ describe('CommunityNodeService', () => {
       );
     });
 
+    it("should not carry npm's README placeholder or its summary to a new row", async () => {
+      (mockRepository.getNodesByNpmPackage as any).mockReturnValue([
+        { ...staleRow, npmReadme: 'ERROR: No README data found!' },
+      ]);
+
+      await service.syncNpmNodes();
+
+      expect(mockRepository.updateNodeReadme).not.toHaveBeenCalled();
+      expect(mockRepository.updateNodeAISummary).not.toHaveBeenCalled();
+    });
+
     it('should re-key even when skipExisting is set', async () => {
       (mockRepository.getNodesByNpmPackage as any).mockReturnValue([staleRow]);
 
