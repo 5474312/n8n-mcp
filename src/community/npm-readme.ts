@@ -1,10 +1,5 @@
 import { gunzipSync } from 'zlib';
-
-/**
- * The value the npm registry stores in a packument's `readme` field when the
- * published tarball had no README it recognised at publish time.
- */
-const NPM_MISSING_README_PLACEHOLDER = 'ERROR: No README data found!';
+import { NPM_MISSING_README_PLACEHOLDER } from '../constants/npm-readme';
 
 /** Default cap on the unpacked tarball size read while looking for a README (64 MiB). */
 const DEFAULT_MAX_UNPACKED_BYTES = 64 * 1024 * 1024;

@@ -16,6 +16,7 @@ import {
   createDocumentationGenerator,
 } from './documentation-generator';
 import { logger } from '../utils/logger';
+import { NPM_MISSING_README_PLACEHOLDER } from '../constants/npm-readme';
 
 /**
  * Options for batch processing
@@ -200,6 +201,10 @@ export class DocumentationBatchProcessor {
           failed++;
         }
       } else {
+        // A stored placeholder is not a README: drop it and the summary generated from it.
+        if (node.npmReadme === NPM_MISSING_README_PLACEHOLDER) {
+          this.repository.clearNodeReadme(node.nodeType);
+        }
         failed++;
       }
     }

@@ -768,6 +768,53 @@ describe('NodeRepository Integration Tests', () => {
       expect(repository.compressStoredColumns()).toEqual({ rewritten: 0 });
     });
   });
+
+  describe("npm's missing-README placeholder", () => {
+    const placeholder = 'ERROR: No README data found!';
+
+    const insertCommunityRow = (nodeType: string, readme: string | null, summary: string | null) =>
+      db.prepare(`
+        INSERT INTO nodes (node_type, package_name, display_name, description, category, development_style,
+          is_ai_tool, is_trigger, is_webhook, is_versioned, version, properties_schema, operations, credentials_required,
+          is_community, npm_readme, ai_documentation_summary, ai_summary_generated_at)
+        VALUES (?, 'n8n-nodes-docs', ?, '', 'automation', 'declarative', 0, 0, 0, 0, '1', '[]', '[]', '[]',
+          1, ?, ?, ?)
+      `).run(nodeType, nodeType, readme, summary, summary ? '2026-09-01T00:00:00.000Z' : null);
+
+    beforeEach(() => {
+      insertCommunityRow('n8n-nodes-docs.placeholder', placeholder, '{"purpose":"guessed"}');
+      insertCommunityRow('n8n-nodes-docs.real', '# Real README', null);
+      insertCommunityRow('n8n-nodes-docs.missing', null, null);
+    });
+
+    it('selects a stored placeholder as a node without a README', () => {
+      const nodeTypes = repository.getCommunityNodesWithoutReadme().map((node) => node.nodeType).sort();
+
+      expect(nodeTypes).toEqual(['n8n-nodes-docs.missing', 'n8n-nodes-docs.placeholder']);
+    });
+
+    it('does not select a stored placeholder for summary generation', () => {
+      db.prepare("UPDATE nodes SET ai_documentation_summary = NULL WHERE node_type = 'n8n-nodes-docs.placeholder'").run();
+
+      const nodeTypes = repository.getCommunityNodesWithoutAISummary().map((node) => node.nodeType);
+
+      expect(nodeTypes).toEqual(['n8n-nodes-docs.real']);
+    });
+
+    it('does not count a stored placeholder as a README in the documentation stats', () => {
+      expect(repository.getDocumentationStats()).toMatchObject({ total: 3, withReadme: 1, needingReadme: 2 });
+    });
+
+    it('clears the README, the summary and its timestamp', () => {
+      repository.clearNodeReadme('n8n-nodes-docs.placeholder');
+
+      const node = repository.getNode('n8n-nodes-docs.placeholder');
+      expect(node.npmReadme).toBeNull();
+      expect(node.aiDocumentationSummary).toBeNull();
+      expect(node.aiSummaryGeneratedAt).toBeNull();
+      expect(repository.getNode('n8n-nodes-docs.real').npmReadme).toBe('# Real README');
+    });
+  });
 });
 
 // Helper function to create ParsedNode from test data

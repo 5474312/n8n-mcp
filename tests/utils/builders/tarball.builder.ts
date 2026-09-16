@@ -24,8 +24,10 @@ export function tarEntry(name: string, content: string, typeflag = '0'): Buffer 
 /** A pax extended header whose `path` record renames the entry that follows it. */
 export function paxPathEntry(path: string): Buffer {
   const body = ` path=${path}\n`;
-  let length = body.length + 1;
-  while (`${length}${body}`.length !== length) length = `${length}${body}`.length;
+  // Record lengths count bytes, so a non-ASCII path is measured in UTF-8.
+  const recordLength = (length: number) => Buffer.byteLength(`${length}${body}`);
+  let length = Buffer.byteLength(body) + 1;
+  while (recordLength(length) !== length) length = recordLength(length);
   return tarEntry('PaxHeader/entry', `${length}${body}`, 'x');
 }
 

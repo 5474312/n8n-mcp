@@ -10,6 +10,7 @@ import { ParsedNode, normalizeNodeVersion } from '../parsers/node-parser';
 import { SQLiteStorageService } from '../services/sqlite-storage-service';
 import { NodeTypeNormalizer } from '../utils/node-type-normalizer';
 import { logger } from '../utils/logger';
+import { NPM_MISSING_README_PLACEHOLDER } from '../constants/npm-readme';
 
 // Default retention window for workflow version backups (days). Configurable
 // via WORKFLOW_VERSION_RETENTION_DAYS; set to 0 to disable age-based pruning.
@@ -779,6 +780,16 @@ export class NodeRepository {
   }
 
   /**
+   * Remove a node's README and the AI summary generated from it
+   */
+  clearNodeReadme(nodeType: string): void {
+    this.db.prepare(`
+      UPDATE nodes SET npm_readme = NULL, ai_documentation_summary = NULL, ai_summary_generated_at = NULL
+      WHERE node_type = ?
+    `).run(nodeType);
+  }
+
+  /**
    * Rewrites rows whose bulk columns are still stored as plain text into the compressed
    * layout that saveNode() and updateNodeReadme() write. The rebuild only rewrites core
    * nodes, so community rows keep whatever layout they were written with until this runs.
@@ -847,11 +858,12 @@ export class NodeRepository {
    * Get community nodes that are missing README content
    */
   getCommunityNodesWithoutReadme(): any[] {
+    // npm's placeholder is short enough to be stored uncompressed, so SQL can match it.
     const rows = this.db.prepare(`
       SELECT * FROM nodes
-      WHERE is_community = 1 AND (npm_readme IS NULL OR npm_readme = '')
+      WHERE is_community = 1 AND (npm_readme IS NULL OR npm_readme = '' OR npm_readme = ?)
       ORDER BY npm_downloads DESC
-    `).all() as any[];
+    `).all(NPM_MISSING_README_PLACEHOLDER) as any[];
     return rows.map(row => this.parseNodeRow(row));
   }
 
@@ -862,10 +874,10 @@ export class NodeRepository {
     const rows = this.db.prepare(`
       SELECT * FROM nodes
       WHERE is_community = 1
-        AND npm_readme IS NOT NULL AND npm_readme != ''
+        AND npm_readme IS NOT NULL AND npm_readme != '' AND npm_readme != ?
         AND (ai_documentation_summary IS NULL OR ai_documentation_summary = '')
       ORDER BY npm_downloads DESC
-    `).all() as any[];
+    `).all(NPM_MISSING_README_PLACEHOLDER) as any[];
     return rows.map(row => this.parseNodeRow(row));
   }
 
@@ -884,8 +896,8 @@ export class NodeRepository {
     ).get() as any).count;
 
     const withReadme = (this.db.prepare(
-      "SELECT COUNT(*) as count FROM nodes WHERE is_community = 1 AND npm_readme IS NOT NULL AND npm_readme != ''"
-    ).get() as any).count;
+      "SELECT COUNT(*) as count FROM nodes WHERE is_community = 1 AND npm_readme IS NOT NULL AND npm_readme != '' AND npm_readme != ?"
+    ).get(NPM_MISSING_README_PLACEHOLDER) as any).count;
 
     const withAISummary = (this.db.prepare(
       "SELECT COUNT(*) as count FROM nodes WHERE is_community = 1 AND ai_documentation_summary IS NOT NULL AND ai_documentation_summary != ''"
