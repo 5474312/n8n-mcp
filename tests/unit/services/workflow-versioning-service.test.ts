@@ -382,6 +382,10 @@ describe('WorkflowVersioningService', () => {
       expect(result.message).toContain('publishing it completes the restore');
       expect(result.backupCreated).toBe(true);
       expect(result.backupVersionId).toBe(2);
+      // Machine-readable code and the draft's versionId must survive alongside the
+      // human-readable message, so callers can branch without parsing it.
+      expect(result.code).toBe('PUBLISH_FORBIDDEN');
+      expect(result.draftVersionId).toBe('draft-1');
     });
   });
 

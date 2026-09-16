@@ -50,6 +50,16 @@ export interface RestoreResult {
    * n8n validates groups on write. The graph is restored either way; this says what else changed.
    */
   warnings?: string[];
+  /**
+   * Machine-readable failure code (e.g. 'PUBLISH_FORBIDDEN' — n8n 2.39+ refused to
+   * publish the restore PUT). Callers should branch on this rather than parsing `message`.
+   */
+  code?: string;
+  /**
+   * The versionId of the draft n8n saved the restored content as, when the restore PUT
+   * was saved as an unpublished draft (PUBLISH_FORBIDDEN) instead of being published.
+   */
+  draftVersionId?: string;
 }
 
 export interface BackupResult {
@@ -294,14 +304,16 @@ export class WorkflowVersioningService {
       // rather than surfacing n8n's raw "saved as a draft" message under a
       // "Failed to restore" prefix, which reads as if nothing happened at all.
       if (error instanceof N8nApiError && error.code === 'PUBLISH_FORBIDDEN') {
-        const reason = (error.details as { reason?: string } | undefined)?.reason;
+        const body = error.details as { reason?: string; versionId?: string } | undefined;
         return {
           success: false,
-          message: `Failed to restore workflow: the content was saved as a draft but not published${reason ? ` (${reason})` : ''}. The published version is unchanged. The draft now holds the restored snapshot, so publishing it completes the restore.`,
+          message: `Failed to restore workflow: the content was saved as a draft but not published${body?.reason ? ` (${body.reason})` : ''}. The published version is unchanged. The draft now holds the restored snapshot, so publishing it completes the restore.`,
           workflowId,
           toVersionId: versionToRestore.id,
           backupCreated: true,
-          backupVersionId: backupResult.versionId
+          backupVersionId: backupResult.versionId,
+          code: error.code,
+          ...(body?.versionId ? { draftVersionId: body.versionId } : {})
         };
       }
       return {

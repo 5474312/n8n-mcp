@@ -3423,8 +3423,13 @@ async function handleLocalWorkflowVersions(
         success: result.success,
         data: result.success ? result : undefined,
         error: result.success ? undefined : result.message,
+        // Pass the machine-readable code through (e.g. PUBLISH_FORBIDDEN) so callers
+        // can branch on it instead of parsing `message`, and name the draft the
+        // restored content actually landed on when it wasn't published.
+        code: result.success ? undefined : result.code,
         details: result.success ? undefined : {
-          validationErrors: result.validationErrors
+          validationErrors: result.validationErrors,
+          ...(result.draftVersionId ? { draftVersionId: result.draftVersionId } : {})
         }
       };
     }

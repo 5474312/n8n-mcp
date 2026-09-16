@@ -457,11 +457,20 @@ export async function handleUpdatePartialWorkflow(
                 // signals disagree, so state that plainly instead of resolving it
                 // either way (e.g. by claiming there was nothing to roll back).
                 const body = updateError.details as { reason?: string; versionId?: string } | undefined;
+                // sameWritableContent (above, in `nothingPersisted`) cannot see a folder
+                // move: workflowBefore comes from a GET, and n8n never returns
+                // parentFolderId (write-only). A folder move in this payload could have
+                // persisted despite the content otherwise matching, so don't let the
+                // "could not be confirmed" framing quietly cover that gap too.
+                const folderMoveInPayload = (diffResult.workflow as any)?.parentFolderId !== undefined;
                 const message = [
                   `n8n reports it saved draft ${body?.versionId}, but the workflow's version is unchanged, so what persisted could not be confirmed.`,
                   'The published version is unchanged.',
+                  folderMoveInPayload
+                    ? 'A folder move in this update may have persisted regardless — n8n cannot report or restore folder placement.'
+                    : '',
                   'Retrying with the same credentials will not publish it — the API key needs the workflow:activate scope, and the user needs workflow:publish permission on this workflow.',
-                ].join(' ');
+                ].filter(Boolean).join(' ');
                 throw new N8nApiError(
                   message,
                   updateError.statusCode,
@@ -470,6 +479,7 @@ export async function handleUpdatePartialWorkflow(
                     reason: body?.reason,
                     draftVersionId: body?.versionId,
                     rollbackPerformed: false,
+                    ...(folderMoveInPayload ? { folderMoveMayHavePersisted: true } : {}),
                   },
                 );
               }
@@ -859,19 +869,21 @@ export async function handleUpdatePartialWorkflow(
     } catch (error) {
       // Track failed mutation
       if (workflowBefore && !input.validateOnly) {
-        // A PUT failure that went through the update-workflow rollback logic above (its
-        // details always carry `rollbackPerformed`, success or not) may have left the
-        // server in one of several states — workflowBefore would misreport "no change"
-        // for some of them. Report: the restored content when the rollback is confirmed
-        // (or direct) performed, the attempted content only when it's confirmed still
-        // retained, and omit workflowAfter when the outcome is unconfirmed or partial.
-        // Any other failure (never reached a PUT, or reached one that never persisted)
-        // keeps the old "no change" assumption.
-        const details = error instanceof N8nApiError ? (error.details as Record<string, unknown> | undefined) : undefined;
-        const wentThroughRollbackPath = !!details && Object.prototype.hasOwnProperty.call(details, 'rollbackPerformed');
-        const workflowAfterOverride: Record<string, unknown> = !wentThroughRollbackPath || details!.rollbackPerformed === true
+        // Only PUBLISH_FORBIDDEN can leave the server holding content other than
+        // workflowBefore after a failed PUT (a persisted draft n8n refused to publish).
+        // Every other failure — including a pre-save rejection, which also sets
+        // `rollbackPerformed: false` in its details — never persisted anything, so
+        // workflowBefore remains accurate; do not key this off the presence of a
+        // `rollbackPerformed` field, or those cases wrongly fall through to "unknown".
+        // For PUBLISH_FORBIDDEN: report the restored content when the rollback is
+        // confirmed (or direct) performed, the attempted content only when it's
+        // confirmed still retained, and omit workflowAfter when the outcome is
+        // unconfirmed or partial.
+        const isPublishForbidden = error instanceof N8nApiError && error.code === 'PUBLISH_FORBIDDEN';
+        const details = isPublishForbidden ? (error.details as Record<string, unknown> | undefined) : undefined;
+        const workflowAfterOverride: Record<string, unknown> = !isPublishForbidden || details?.rollbackPerformed === true
           ? { workflowAfter: workflowBefore }
-          : details!.changeRetained === true && diffResult?.workflow
+          : details?.changeRetained === true && diffResult?.workflow
             ? { workflowAfter: diffResult.workflow }
             : {};
         void trackWorkflowMutation({

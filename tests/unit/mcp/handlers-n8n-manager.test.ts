@@ -2260,6 +2260,28 @@ describe('handlers-n8n-manager', () => {
       expect(result.error).not.toContain('not configured');
     });
 
+    it('passes the restore result\'s code and draftVersionId through on a PUBLISH_FORBIDDEN failure (#1124)', async () => {
+      await mockRestore({
+        success: false,
+        message: 'Failed to restore workflow: the content was saved as a draft but not published (insufficient_api_key_scope). The published version is unchanged.',
+        workflowId: 'wf-1',
+        toVersionId: 1,
+        backupCreated: true,
+        backupVersionId: 2,
+        code: 'PUBLISH_FORBIDDEN',
+        draftVersionId: 'draft-1',
+      });
+
+      const result = await handlers.handleWorkflowVersions(
+        { mode: 'rollback', workflowId: 'wf-1', versionId: 1 },
+        mockRepository
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.code).toBe('PUBLISH_FORBIDDEN');
+      expect((result.details as any)?.draftVersionId).toBe('draft-1');
+    });
+
     it('still refuses when no n8n API is configured at all', async () => {
       await mockRestore({ success: true, message: 'ok', workflowId: 'wf-1', toVersionId: 1, backupCreated: true });
       vi.mocked(getN8nApiConfig).mockReturnValue(null);

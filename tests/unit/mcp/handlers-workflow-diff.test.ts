@@ -1022,6 +1022,15 @@ describe('handlers-workflow-diff', () => {
           rollbackPerformed: false,
         },
       });
+      // Regression check: this non-PUBLISH_FORBIDDEN failure's details also carry
+      // `rollbackPerformed: false` (pre-save rejection), but that must not be mistaken
+      // for the PUBLISH_FORBIDDEN "unconfirmed" state and drop workflowAfter — nothing
+      // persisted here, so workflowBefore remains accurate and MutationTracker still
+      // gets a workflowAfter to validate against.
+      await vi.waitFor(() => expect(telemetryMocks.trackWorkflowMutation).toHaveBeenCalled());
+      expect(telemetryMocks.trackWorkflowMutation).toHaveBeenCalledWith(
+        expect.objectContaining({ workflowAfter: before }),
+      );
     });
 
     it('should detect persistence via versionCounter when versionId is unavailable', async () => {
@@ -1573,6 +1582,48 @@ describe('handlers-workflow-diff', () => {
       });
       expect(result.details).not.toHaveProperty('supersededDraftVersionId');
       expect(result.details).not.toHaveProperty('restoredDraftVersionId');
+    });
+
+    it('flags folder-move uncertainty instead of implying nothing persisted, when the request moved the workflow (#1124)', async () => {
+      // sameWritableContent cannot see a folder move: workflowBefore comes from a GET, and
+      // n8n never returns parentFolderId (write-only). Even with version AND content both
+      // unchanged, a folder move in this payload could have persisted regardless.
+      const before = createTestWorkflow({ name: 'Original Workflow', versionId: 'v1' });
+      const attempted = createTestWorkflow({ name: 'Original Workflow', versionId: 'v1', parentFolderId: 'folder-2' });
+
+      const publishForbidden = new N8nApiError(
+        "Your change was saved as a draft. It wasn't published because this API key does not have the workflow:activate scope.",
+        403,
+        'PUBLISH_FORBIDDEN',
+        { reason: 'insufficient_api_key_scope', versionId: 'draft-1' },
+      );
+
+      mockApiClient.getWorkflow
+        .mockResolvedValueOnce(before)
+        .mockResolvedValueOnce(before); // GET after failure: same version AND same content
+      mockDiffEngine.applyDiff.mockResolvedValue({
+        success: true,
+        workflow: attempted,
+        operationsApplied: 1,
+        message: 'Success',
+        errors: [],
+      });
+      mockApiClient.updateWorkflow.mockRejectedValueOnce(publishForbidden);
+
+      const result = await handleUpdatePartialWorkflow({
+        id: 'test-id',
+        operations: [{ type: 'moveToFolder', parentFolderId: 'folder-2' }],
+      }, mockRepository);
+
+      expect(mockApiClient.updateWorkflow).toHaveBeenCalledTimes(1); // no rollback PUT attempted
+      expect(result.code).toBe('PUBLISH_FORBIDDEN');
+      expect(result.error).toContain('folder move');
+      expect(result.error).toContain('may have persisted');
+      expect(result.details).toMatchObject({
+        rollbackPerformed: false,
+        draftVersionId: 'draft-1',
+        folderMoveMayHavePersisted: true,
+      });
     });
 
     it('attempts rollback when the version is unchanged but the content differs (n8n does not bump versionId for name/settings-only changes)', async () => {
