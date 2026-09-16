@@ -25,6 +25,8 @@ describe('blankStringLiterals', () => {
 
   it('reads a regex after return and a division after an object literal', () => {
     expect(findJmespathCalls('(() => { return /$jmespath("a", d)/.source; })()')).toEqual([]);
+    expect(findJmespathCalls('(async () => { return await /$jmespath("a", d)/; })()')).toEqual([]);
+    expect(findJmespathCalls('returnx / $jmespath($json, "[?a > 1]")')[0].query).toBe('[?a > 1]');
     expect(findJmespathCalls('({valueOf: () => 1} / $jmespath($json, "[?age > 18]"))')[0].query).toBe('[?age > 18]');
   });
 

@@ -55,9 +55,9 @@ const REGEX_KEYWORDS = new Set(['return', 'typeof', 'case', 'do', 'else', 'in', 
  * a template literal are code and stay. Regex literals are blanked too (a `/` after an
  * operator or opening bracket starts one), so a quote inside `/"/` does not open a string.
  *
- * Known gaps, all on the side of reading less: an escaped quote inside an argument makes the
- * argument dynamic for findJmespathCalls, and a `/` misread as division leaves the regex body
- * as code.
+ * Known gaps, all on the side of reading less: a `/` after `)`, `]` or `}` is read as division,
+ * so a regex there is scanned as code, and a query assembled by concatenation or held in a
+ * variable is not followed.
  */
 export function blankStringLiterals(source: string, options: { comments?: boolean } = {}): string {
   const out = source.split('');
@@ -67,6 +67,7 @@ export function blankStringLiterals(source: string, options: { comments?: boolea
   let quote: string | null = null;
   let lastCode = ''; // last non-space code character, for the regex-vs-division decision
   let lastWord = ''; // the identifier or keyword that ends at lastCode, if any
+  let wordOpen = false; // true while lastWord is still being extended by adjacent word characters
   let i = 0;
 
   while (i < source.length) {
@@ -149,9 +150,14 @@ export function blankStringLiterals(source: string, options: { comments?: boolea
       }
     }
     if (/\w/.test(ch)) {
-      lastWord = /\w/.test(lastCode) ? lastWord + ch : ch;
-    } else if (!/\s/.test(ch)) {
+      // Whitespace ends a word: `return await` is two words, not `returnawait`.
+      lastWord = wordOpen ? lastWord + ch : ch;
+      wordOpen = true;
+    } else if (/\s/.test(ch)) {
+      wordOpen = false;
+    } else {
       lastWord = '';
+      wordOpen = false;
     }
     if (!/\s/.test(ch)) lastCode = ch;
     i++;
