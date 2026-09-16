@@ -3346,6 +3346,20 @@ describe('n8n-validation', () => {
       const suggestion = errors.find(e => e.includes('Disconnected nodes'));
       expect(suggestion).toContain("source: 'B', target: 'A'");
     });
+
+    it('omits the hint when the only other node is a sticky note', () => {
+      const errors = validateWorkflowStructure({
+        name: 'Lone node with a note',
+        nodes: [
+          { id: '1', name: 'A', type: 'n8n-nodes-base.noOp', typeVersion: 1, position: [0, 0], parameters: {} },
+          { id: '3', name: 'Note', type: 'n8n-nodes-base.stickyNote', typeVersion: 1, position: [0, 0], parameters: {} },
+        ],
+        connections: { A: { main: [[]] } },
+      } as unknown as Partial<Workflow>);
+      const message = errors.find(e => e.includes('Disconnected nodes'));
+      expect(message).toBeDefined();
+      expect(message).not.toContain('addConnection');
+    });
   });
 
   describe('Switch with an empty rule collection (#1100)', () => {
@@ -3365,6 +3379,21 @@ describe('n8n-validation', () => {
         Switch: { main: [[{ node: 'End', type: 'main', index: 0 }], [{ node: 'End', type: 'main', index: 0 }]] },
       } } as unknown as Partial<Workflow>);
       expect(tooMany.some(e => e.includes('0 rules') && e.includes('plus a fallback output'))).toBe(true);
+    });
+
+    it('describes a Switch with no outputs instead of a negative index range', () => {
+      const nodes = [
+        webhookNode('1', 'Start', 'n8n-nodes-base.manualTrigger'),
+        { ...webhookNode('2', 'Switch', 'n8n-nodes-base.switch', 3.2), parameters: { rules: { values: [] } } },
+        webhookNode('3', 'End', 'n8n-nodes-base.noOp', 1),
+      ];
+      const errors = validateWorkflowStructure({ name: 'Switch', nodes, connections: {
+        Start: { main: [[{ node: 'Switch', type: 'main', index: 0 }]] },
+        Switch: { main: [[{ node: 'End', type: 'main', index: 0 }]] },
+      } } as unknown as Partial<Workflow>);
+      const message = errors.find(e => e.includes('output branches in connections'));
+      expect(message).toContain('has no outputs');
+      expect(message).not.toContain('0 to -1');
     });
   });
 

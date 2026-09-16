@@ -441,12 +441,15 @@ export function validateWorkflowStructure(workflow: Partial<Workflow>): string[]
       if (disconnectedNodes.length > 0) {
         const disconnectedList = disconnectedNodes.map(n => `"${n.name}" (${n.type})`).join(', ');
         const firstDisconnected = disconnectedNodes[0];
-        // Suggest a connected executable node as the source; a sticky note is never one.
+        // Suggest a connected executable node as the source; a sticky note is never one, and
+        // with no other executable node there is nothing to suggest.
         const suggestedSource = workflow.nodes.find(n => connectedNodes.has(n.name) && !isNonExecutableNode(n.type))?.name
-          || workflow.nodes.find(n => n.name !== firstDisconnected.name && !isNonExecutableNode(n.type))?.name
-          || firstDisconnected.name;
+          || workflow.nodes.find(n => n.name !== firstDisconnected.name && !isNonExecutableNode(n.type))?.name;
+        const hint = suggestedSource
+          ? ` Add a connection: {type: 'addConnection', source: '${suggestedSource}', target: '${firstDisconnected.name}', sourcePort: 'main', targetPort: 'main'}`
+          : '';
 
-        errors.push(`Disconnected nodes detected: ${disconnectedList}. Each node must have at least one connection. Add a connection: {type: 'addConnection', source: '${suggestedSource}', target: '${firstDisconnected.name}', sourcePort: 'main', targetPort: 'main'}`);
+        errors.push(`Disconnected nodes detected: ${disconnectedList}. Each node must have at least one connection.${hint}`);
       }
     }
   }
@@ -531,7 +534,9 @@ export function validateWorkflowStructure(workflow: Partial<Workflow>): string[]
             (fallbackOutputs ? ' plus a fallback output' : '') +
             (errorOutputs ? ' plus an error output' : '') +
             ` but ${outputBranches} output branches in connections. ` +
-            `Outputs are indexed 0 to ${outputCount - 1}; remove the extra branches or add rules for them.`
+            (outputCount > 0
+              ? `Outputs are indexed 0 to ${outputCount - 1}; remove the extra branches or add rules for them.`
+              : 'The Switch has no outputs; add rules or a fallback output before connecting branches.')
           );
         }
 
