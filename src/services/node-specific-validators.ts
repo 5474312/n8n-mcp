@@ -35,6 +35,25 @@ const MAX_SHORT_INPUT_LENGTH = 2_000;
 const MAX_PARAM_SCAN = 2_000;
 
 /**
+ * Caps for the Python scope/return scanners. A `def` header longer than
+ * MAX_HEADER_LINES, or a return expression whose brackets do not close within
+ * MAX_RETURN_LOOKAHEAD characters, is left unanalysed rather than scanned
+ * further - malformed input must not turn these walks quadratic.
+ */
+const MAX_HEADER_LINES = 50;
+const MAX_RETURN_LOOKAHEAD = 5_000;
+const MAX_RETURN_TOTAL_SCAN = 200_000;
+
+/** One pass over a Python Code node: every line's scope and what it binds. */
+interface PythonScopeIndex {
+  lines: string[];
+  lineScope: number[];
+  scopes: { parent: number; names: Set<string> }[];
+  lineLocal: Set<string>[];
+  referenceText: string[];
+}
+
+/**
  * Detects a top-level primitive return in a JS Code node. Keyword literals
  * require a trailing word boundary so identifiers that merely start with one
  * (e.g. `return trueItems`) are not misflagged. Module-level + flagless so it
@@ -563,8 +582,10 @@ export class NodeSpecificValidators {
     const { config, errors, warnings, autofix } = context;
     const { operation } = config;
     
-    // Collection is always required
-    if (!config.collection) {
+    // Collection is always required. The base validator already reports an
+    // empty required property, so skip this when it has - one defect, one error.
+    const collectionAlreadyReported = errors.some(e => e.property === 'collection');
+    if (!config.collection && !collectionAlreadyReported) {
       errors.push({
         type: 'missing_required',
         property: 'collection',
@@ -1278,19 +1299,23 @@ export class NodeSpecificValidators {
       return;
     }
     
+    const mode = config.mode || 'runOnceForAllItems';
+    // An expression resolves at runtime, so which mode the node runs in is
+    // unknown here and the mode-dependent rules have to stay quiet.
+    const modeIsKnown = !(typeof config.mode === 'string' && config.mode.startsWith('='));
+
     // Language-specific validation
     if (language === 'javaScript') {
       this.validateJavaScriptCode(code, errors, warnings, suggestions);
     } else if (language === 'python') {
-      this.validatePythonCode(code, errors, warnings, suggestions);
+      this.validatePythonCode(code, errors, warnings, suggestions, mode, modeIsKnown);
     }
-    
+
     // Check return statement and format
-    const mode = config.mode || 'runOnceForAllItems';
-    this.validateReturnStatement(code, language, errors, warnings, suggestions, mode);
-    
+    this.validateReturnStatement(code, language, errors, warnings, suggestions, mode, modeIsKnown);
+
     // Check n8n variable usage
-    this.validateN8nVariables(code, language, warnings, suggestions, errors);
+    this.validateN8nVariables(code, language, warnings, suggestions, errors, mode);
     
     // Security and best practices
     this.validateCodeSecurity(code, language, warnings);
@@ -1306,8 +1331,8 @@ export class NodeSpecificValidators {
       autofix.onError = 'continueRegularOutput';
     }
     
-    // Mode-specific suggestions
-    if (config.mode === 'runOnceForEachItem' && code.includes('items')) {
+    // Mode-specific suggestions ($json is a JavaScript-only accessor)
+    if (language === 'javaScript' && config.mode === 'runOnceForEachItem' && code.includes('items')) {
       warnings.push({
         type: 'best_practice',
         message: 'In "Run Once for Each Item" mode, use $json instead of items array',
@@ -1383,17 +1408,374 @@ export class NodeSpecificValidators {
     }
   }
   
+  /**
+   * Globals the Pyodide "Python (Beta)" runtime provided and native Python
+   * (n8n 2.x, `language: "pythonNative"`) does not. Each one raises NameError.
+   */
+  private static readonly PYTHON_REMOVED_GLOBALS = ['_input', '_json', '_node', '_now', '_today', '_jmespath'];
+
+  /**
+   * Builtins the task runner denies by default (N8N_RUNNERS_BUILTINS_DENY).
+   * Calling one raises NameError at runtime.
+   */
+  private static readonly PYTHON_DENIED_BUILTINS: Record<string, string> = {
+    eval: 'Compute the value directly instead of evaluating a string',
+    exec: 'Compute the value directly instead of executing a string',
+    compile: 'Compute the value directly instead of compiling a string',
+    open: 'Read and write files with n8n file nodes',
+    input: 'Pass values in from a previous node',
+    type: 'Use isinstance(x, dict) to check a type',
+    getattr: 'Use dict access: d.get(key)',
+    setattr: 'Use dict access: d[key] = value',
+    hasattr: 'Use dict access: key in d',
+    vars: 'Use dict access: d.get(key)',
+    dir: 'Use dict access: key in d',
+    globals: 'Pass values through function arguments',
+    locals: 'Pass values through function arguments',
+    object: 'Use dicts instead of objects',
+    memoryview: 'Work with lists, dicts and strings',
+    breakpoint: 'Use print() for debugging'
+  };
+
+  private static pythonRemovedGlobalFix(name: string, isEachItem: boolean): string {
+    switch (name) {
+      case '_input':
+        return isEachItem ? 'Use _item (the current item dict)' : 'Use _items (the list of item dicts)';
+      case '_json':
+        return isEachItem ? 'Use _item["json"]' : 'Use _items[0]["json"]';
+      case '_node':
+        return 'No equivalent: merge the other branch upstream, or read it in JavaScript';
+      case '_now':
+      case '_today':
+        return 'No equivalent: pass the timestamp in from an expression, or import datetime if this instance allowlists it';
+      default:
+        return 'No equivalent: use $jmespath in an expression, or a list comprehension';
+    }
+  }
+
+  /**
+   * Returns `strip(code)`, unless `code` exceeds MAX_CODE_LENGTH - in which case
+   * the raw code is scanned as-is. Bounds the cost of the polynomial-in-theory
+   * regexes run against the stripped view to a constant.
+   */
+  private static withinCapOrRaw(code: string, strip: (code: string) => string): string {
+    return code.length <= MAX_CODE_LENGTH ? strip(code) : code;
+  }
+
+  /**
+   * Index of the `:` that ends a `def` header - the first one at bracket depth
+   * zero. Returns -1 while the header is still open, so a header split across
+   * lines can be accumulated until this finds the colon.
+   */
+  private static pythonHeaderColonIndex(text: string, startDepth: number = 0): number {
+    let depth = startDepth;
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      if (char === '(' || char === '[' || char === '{') depth++;
+      else if (char === ')' || char === ']' || char === '}') depth--;
+      else if (char === ':' && depth === 0) return i;
+    }
+    return -1;
+  }
+
+  /** Net bracket depth a line adds. */
+  private static pythonBracketDelta(text: string): number {
+    let delta = 0;
+    for (const char of text) {
+      if (char === '(' || char === '[' || char === '{') delta++;
+      else if (char === ')' || char === ']' || char === '}') delta--;
+    }
+    return delta;
+  }
+
+  /** The plain identifier a binding target names, or null (e.g. `d["k"]`). */
+  private static pythonTargetName(target: string): string | null {
+    const bare = target.trim().replace(/^[(\[\s]+|[)\]\s]+$/g, '').replace(/^\*+/, '').trim();
+    // `name: dict` (annotated) and `name=default` (parameter) both bind `name`.
+    const name = bare.split(/[:=]/)[0].trim();
+    return /^[A-Za-z_]\w*$/.test(name) ? name : null;
+  }
+
+  /** Split on commas that are not inside brackets. */
+  private static pythonSplitTopLevel(text: string): string[] {
+    const parts: string[] = [];
+    let depth = 0;
+    let current = '';
+    for (const char of text) {
+      if (char === '(' || char === '[' || char === '{') depth++;
+      else if (char === ')' || char === ']' || char === '}') depth--;
+      if (char === ',' && depth === 0) {
+        parts.push(current);
+        current = '';
+        continue;
+      }
+      current += char;
+    }
+    parts.push(current);
+    return parts;
+  }
+
+  /**
+   * Parameter names of a `def` header. Defaults and annotations are expressions
+   * evaluated in the ENCLOSING scope, so only the name before `=` / `:` binds.
+   */
+  private static pythonParameterNames(header: string): string[] {
+    const open = header.indexOf('(');
+    if (open === -1) return [];
+    let depth = 0;
+    let close = -1;
+    for (let i = open; i < header.length; i++) {
+      if (header[i] === '(') depth++;
+      else if (header[i] === ')') {
+        depth--;
+        if (depth === 0) { close = i; break; }
+      }
+    }
+    if (close === -1) return [];
+    return this.pythonSplitTopLevel(header.slice(open + 1, close))
+      .map(part => this.pythonTargetName(part))
+      .filter((name): name is string => name !== null);
+  }
+
+  /** Names a statement binds in its own scope (assignment, `for`, `as`). */
+  private static pythonBindingsOnLine(line: string): string[] {
+    const names: string[] = [];
+
+    // Assignment, including destructuring (`a, b = ...`) and annotated
+    // (`name: dict = {}`). Augmented (`x += 1`) and comparisons are excluded.
+    const assignment = /^[ \t]*([^=\n]+?)(?<![=!<>+\-*/%&|^~])=(?!=)/.exec(line);
+    if (assignment) {
+      this.pythonSplitTopLevel(assignment[1]).forEach(target => {
+        const name = this.pythonTargetName(target);
+        if (name) names.push(name);
+      });
+    }
+
+    // `for a, b in ...:` as a statement binds for the rest of the block.
+    const forStatement = /^[ \t]*(?:async[ \t]+)?for[ \t]+(.+?)[ \t]+in[ \t]/.exec(line);
+    if (forStatement) {
+      this.pythonSplitTopLevel(forStatement[1]).forEach(target => {
+        const name = this.pythonTargetName(target);
+        if (name) names.push(name);
+      });
+    }
+
+    const asTargets = /\bas[ \t]+(\w+)/g;
+    let match: RegExpExecArray | null;
+    while ((match = asTargets.exec(line)) !== null) names.push(match[1]);
+
+    return names;
+  }
+
+  /**
+   * Names bound only for the line they appear on: comprehension `for` targets
+   * and `lambda` parameters, both of which have their own scope.
+   */
+  private static pythonLineLocalBindings(line: string): string[] {
+    const names: string[] = [];
+
+    const forTargets = /\bfor[ \t]+(.+?)[ \t]+in\b/g;
+    let match: RegExpExecArray | null;
+    while ((match = forTargets.exec(line)) !== null) {
+      this.pythonSplitTopLevel(match[1]).forEach(target => {
+        const name = this.pythonTargetName(target);
+        if (name) names.push(name);
+      });
+    }
+
+    const lambdas = /\blambda\b([^:\n]*):/g;
+    while ((match = lambdas.exec(line)) !== null) {
+      this.pythonSplitTopLevel(match[1]).forEach(target => {
+        const name = this.pythonTargetName(target);
+        if (name) names.push(name);
+      });
+    }
+
+    return names;
+  }
+
+  /**
+   * A `def` header with the names it BINDS blanked out - the function name and
+   * each parameter name - while annotations and defaults are kept, because
+   * those are expressions evaluated in the enclosing scope. Length is
+   * preserved so the result can be split back into lines.
+   */
+  private static pythonMaskHeaderBindings(header: string): string {
+    const chars = header.split('');
+    const blank = (from: number, to: number) => {
+      for (let i = from; i < to; i++) if (chars[i] !== '\n') chars[i] = ' ';
+    };
+
+    const named = /(\bdef[ \t]+)(\w+)/.exec(header);
+    if (named) blank(named.index + named[1].length, named.index + named[0].length);
+
+    const open = header.indexOf('(');
+    if (open === -1) return chars.join('');
+    let depth = 0;
+    let close = header.length;
+    for (let i = open; i < header.length; i++) {
+      if (header[i] === '(') depth++;
+      else if (header[i] === ')') {
+        depth--;
+        if (depth === 0) { close = i; break; }
+      }
+    }
+
+    let partStart = open + 1;
+    let partDepth = 0;
+    for (let i = open + 1; i <= close; i++) {
+      if (i === close || (header[i] === ',' && partDepth === 0)) {
+        const part = header.slice(partStart, i);
+        const annotated = part.search(/[:=]/);
+        blank(partStart, partStart + (annotated === -1 ? part.length : annotated));
+        partStart = i + 1;
+        continue;
+      }
+      const char = header[i];
+      if (char === '(' || char === '[' || char === '{') partDepth++;
+      else if (char === ')' || char === ']' || char === '}') partDepth--;
+    }
+
+    return chars.join('');
+  }
+
+  /**
+   * Maps every line to the innermost `def` scope that encloses it, with the
+   * names each scope binds. A `def` header line belongs to the ENCLOSING scope,
+   * because parameter defaults and annotations are evaluated there.
+   */
+  private static pythonScopes(scan: string): PythonScopeIndex {
+    const lines = scan.split('\n');
+    const scopes: { parent: number; names: Set<string> }[] = [{ parent: -1, names: new Set() }];
+    const lineScope = new Array(lines.length).fill(0);
+    const lineLocal = lines.map(() => new Set<string>());
+    const referenceText = [...lines];
+    const stack: { scope: number; indent: number }[] = [{ scope: 0, indent: -1 }];
+
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i];
+      if (line.trim() === '') {
+        lineScope[i] = stack[stack.length - 1].scope;
+        i++;
+        continue;
+      }
+
+      const indent = (line.match(/^[ \t]*/) || [''])[0].length;
+      while (stack.length > 1 && indent <= stack[stack.length - 1].indent) stack.pop();
+      const enclosing = stack[stack.length - 1].scope;
+
+      const definition = /^[ \t]*(?:async[ \t]+)?def[ \t]+(\w+)[ \t]*\(/.exec(line);
+      if (!definition) {
+        lineScope[i] = enclosing;
+        i++;
+        continue;
+      }
+
+      // Accumulate a multi-line header, tracking bracket depth incrementally so
+      // the cost stays linear. Bounded three ways so malformed code (a file of
+      // unclosed `def f(` lines) cannot make this quadratic: the colon that ends
+      // the header, MAX_HEADER_LINES, and - once brackets are balanced - the
+      // first line that dedents back to the `def`.
+      let header = line;
+      let last = i;
+      let headerDepth = this.pythonBracketDelta(line);
+      while (this.pythonHeaderColonIndex(line, headerDepth - this.pythonBracketDelta(line)) === -1
+             && last + 1 < lines.length
+             && last - i < MAX_HEADER_LINES) {
+        const next = lines[last + 1];
+        const nextIndent = (next.match(/^[ \t]*/) || [''])[0].length;
+        if (headerDepth <= 0 && next.trim() !== '' && nextIndent <= indent) break;
+        last++;
+        header += `\n${next}`;
+        headerDepth += this.pythonBracketDelta(next);
+        if (this.pythonHeaderColonIndex(next, headerDepth - this.pythonBracketDelta(next)) !== -1) break;
+      }
+      // The parameter NAMES are binding sites, not references to whatever the
+      // runtime would otherwise provide, so they are masked out.
+      const masked = this.pythonMaskHeaderBindings(header).split('\n');
+      for (let k = i; k <= last; k++) {
+        lineScope[k] = enclosing;
+        referenceText[k] = masked[k - i];
+      }
+
+      scopes[enclosing].names.add(definition[1]);
+      stack.push({
+        scope: scopes.push({ parent: enclosing, names: new Set(this.pythonParameterNames(header)) }) - 1,
+        indent
+      });
+      i = last + 1;
+    }
+
+    lines.forEach((line, index) => {
+      this.pythonBindingsOnLine(line).forEach(name => scopes[lineScope[index]].names.add(name));
+      this.pythonLineLocalBindings(line).forEach(name => lineLocal[index].add(name));
+    });
+
+    return { lines, lineScope, scopes, lineLocal, referenceText };
+  }
+
+  /**
+   * True when `reference` matches at least one line where `name` is NOT bound by
+   * the code. Python resolves names outward, so a binding in an enclosing scope
+   * exempts nested references, but a binding inside a `def` never exempts a
+   * top-level reference.
+   *
+   * Two deliberate limits, both order-insensitive because the scopes are built
+   * in one pass rather than interpreted: a binding LATER in a scope exempts an
+   * earlier reference in that same scope (`x = _json` below `return _json`), and
+   * a `def type(...)` anywhere exempts calls written above it. Both keep the
+   * rules quiet on code that names a symbol locally, which is the safer error.
+   */
+  private static pythonHasUnboundReference(
+    index: PythonScopeIndex,
+    name: string,
+    reference: RegExp
+  ): boolean {
+    const { lineScope, scopes, lineLocal, referenceText } = index;
+
+    return referenceText.some((line, index) => {
+      if (!reference.test(line)) return false;
+      if (lineLocal[index].has(name)) return false;
+      for (let scope = lineScope[index]; scope !== -1; scope = scopes[scope].parent) {
+        if (scopes[scope].names.has(name)) return false;
+      }
+      return true;
+    });
+  }
+
+  /**
+   * True when a `global` statement appears inside a `def` body. Only those fail:
+   * user code runs inside a wrapper function, so a nested function's `global`
+   * binds to the module scope it never writes to. A top-level `global` is a
+   * no-op that works.
+   */
+  private static pythonHasGlobalInsideFunction(index: PythonScopeIndex): boolean {
+    return index.lines.some((line, line_index) =>
+      index.lineScope[line_index] !== 0 && /^[ \t]*global[ \t]+\w/.test(line)
+    );
+  }
+
   private static validatePythonCode(
     code: string,
     errors: ValidationError[],
     warnings: ValidationWarning[],
-    suggestions: string[]
+    suggestions: string[],
+    mode: string = 'runOnceForAllItems',
+    modeIsKnown: boolean = true
   ): void {
-    // Python-specific validation
+    // Python-specific validation. Every pattern below scans the
+    // string/comment-stripped view so a token inside a literal (a message
+    // mentioning "_input", a filename "data.json") cannot trip it.
     const lines = code.split('\n');
-    
+    const isEachItem = mode === 'runOnceForEachItem';
+    const scan = this.withinCapOrRaw(code, c => this.stripPythonStringsAndComments(c));
+    // One scope pass feeds every name check below. Above the length cap the
+    // scope-dependent rules are skipped rather than run against raw text.
+    const scopeIndex = code.length <= MAX_CODE_LENGTH ? this.pythonScopes(scan) : null;
+
     // Check for tab/space mixing (already done in base validator)
-    
+
     // Check for common Python mistakes in n8n context
     if (code.includes('__name__') && code.includes('__main__')) {
       warnings.push({
@@ -1402,26 +1784,143 @@ export class NodeSpecificValidators {
         suggestion: 'Code node Python runs directly - remove the main check'
       });
     }
-    
-    // Check for unavailable imports
-    const unavailableImports = [
-      { module: 'requests', suggestion: 'Use JavaScript Code node with $helpers.httpRequest for HTTP requests' },
-      { module: 'pandas', suggestion: 'Use built-in list/dict operations or JavaScript for data manipulation' },
-      { module: 'numpy', suggestion: 'Use standard Python math operations' },
-      { module: 'pip', suggestion: 'External packages cannot be installed in Code nodes' }
-    ];
-    
-    unavailableImports.forEach(({ module, suggestion }) => {
-      if (code.includes(`import ${module}`) || code.includes(`from ${module}`)) {
+
+    // Removed Pyodide globals. A name the code binds itself is an ordinary
+    // local, not the runtime global.
+    if (scopeIndex) {
+      for (const name of this.PYTHON_REMOVED_GLOBALS) {
+        if (this.pythonHasUnboundReference(scopeIndex, name, new RegExp(`\\b${name}\\b`))) {
+          errors.push({
+            type: 'invalid_value',
+            property: 'pythonCode',
+            message: `${name} does not exist in native Python - it was removed with the Pyodide runtime`,
+            fix: this.pythonRemovedGlobalFix(name, isEachItem)
+          });
+        }
+      }
+
+      // `items` is the JavaScript Code node's variable, not a Python one. The
+      // guard keeps `d.items()` and `for k, v in data.items():` out of it.
+      if (this.pythonHasUnboundReference(scopeIndex, 'items', /(?<![\w.])items\b(?!\s*\()/)) {
         errors.push({
           type: 'invalid_value',
           property: 'pythonCode',
-          message: `Module '${module}' is not available in Code nodes`,
-          fix: suggestion
+          message: 'items does not exist in native Python; use _items (all-items mode) or _item (each-item mode)',
+          fix: isEachItem ? 'Use _item (the current item dict)' : 'Use _items (the list of item dicts)'
         });
       }
-    });
-    
+    }
+
+    // Input variables exist only in their own mode. Skipped when the node's
+    // mode is an expression (resolved at runtime), and when the code binds the
+    // name itself - then it is an ordinary local, not the runtime global.
+    if (modeIsKnown && scopeIndex) {
+      if (isEachItem && this.pythonHasUnboundReference(scopeIndex, '_items', /\b_items\b/)) {
+        errors.push({
+          type: 'invalid_value',
+          property: 'pythonCode',
+          message: '_items does not exist in "Run Once for Each Item" mode',
+          fix: 'Use _item, or switch mode to runOnceForAllItems'
+        });
+      }
+      if (!isEachItem && this.pythonHasUnboundReference(scopeIndex, '_item', /\b_item\b/)) {
+        errors.push({
+          type: 'invalid_value',
+          property: 'pythonCode',
+          message: '_item does not exist in "Run Once for All Items" mode',
+          fix: 'Use _items, or switch mode to runOnceForEachItem'
+        });
+      }
+    }
+
+    // Items are plain dicts. `.json(` is left alone - that is a method call on
+    // something else, not item access.
+    if (/\.json\b(?!\s*\()/.test(scan)) {
+      errors.push({
+        type: 'invalid_value',
+        property: 'pythonCode',
+        message: 'Items are dicts: .json attribute access raises AttributeError',
+        fix: 'Use dict access: item["json"]["field"] or item["json"].get("field")'
+      });
+    }
+
+    // Imports are checked against an allowlist before the code runs. A statement
+    // can also start after `:` (`if True: import json`) or `;`.
+    const importedModules = new Set<string>();
+    const importStatement = /(?:^|[:;])[ \t]*import[ \t]+([^\n;]+)/gm;
+    const fromImportStatement = /(?:^|[:;])[ \t]*from[ \t]+([\w.]+)[ \t]+import\b/gm;
+    const rootModule = (token: string) => token.trim().split(/[ \t]+as[ \t]+/)[0].trim().split('.')[0];
+    const addModule = (token: string) => {
+      const name = rootModule(token);
+      if (/^[A-Za-z_]\w*$/.test(name)) importedModules.add(name);
+    };
+    let importMatch: RegExpExecArray | null;
+    while ((importMatch = importStatement.exec(scan)) !== null) {
+      importMatch[1].split(',').forEach(addModule);
+    }
+    while ((importMatch = fromImportStatement.exec(scan)) !== null) {
+      addModule(importMatch[1]);
+    }
+    for (const moduleName of importedModules) {
+      warnings.push({
+        // 'security' so the minimal/runtime profiles keep it: a blocked import
+        // rejects the whole node before it runs.
+        type: 'security',
+        property: 'pythonCode',
+        message: `import ${moduleName} is blocked unless this instance allowlists the module (n8n Cloud allows none)`,
+        suggestion: `Write import-free code, or confirm '${moduleName}' is allowlisted on the Python task runner first`
+      });
+    }
+
+    // Class definitions
+    if (/^[ \t]*class[ \t]+\w/m.test(scan)) {
+      errors.push({
+        type: 'invalid_value',
+        property: 'pythonCode',
+        message: 'class definitions fail in the sandbox: __build_class__ not found',
+        fix: 'Use dicts and plain functions instead of a class'
+      });
+    }
+
+    // Denied builtins. A local `def type(...)` or `type = ...` shadows the
+    // builtin, so the call resolves to the user's own definition.
+    for (const [name, fix] of Object.entries(scopeIndex ? this.PYTHON_DENIED_BUILTINS : {})) {
+      if (this.pythonHasUnboundReference(scopeIndex!, name, new RegExp(`(?<![\\w.])${name}[ \\t]*\\(`))) {
+        errors.push({
+          type: 'invalid_value',
+          property: 'pythonCode',
+          message: `${name}() is denied in the Python sandbox and raises NameError`,
+          fix
+        });
+      }
+    }
+
+    // Dunder access is rejected statically, before the code runs. A format
+    // string reaches it too ("{0.__class__}".format(x)), so the replacement
+    // fields of every string literal are checked as well.
+    const formatFields = this.withinCapOrRaw(code, c => this.stripPythonStringsAndComments(c, true, true));
+    if (/\.__\w+__/.test(scan) || /\b__class__\b/.test(scan) || /\b__builtins__\b/.test(scan)
+        || /(?<![\w.])__import__[ \t]*\(/.test(scan)
+        || /\{[^{}\n]{0,200}\.__\w+__/.test(formatFields)) {
+      errors.push({
+        type: 'invalid_value',
+        property: 'pythonCode',
+        message: 'Dunder access is rejected before the code runs: Security violations detected',
+        fix: 'Remove __class__, __import__ and other dunder access'
+      });
+    }
+
+    // A `global` inside a nested function never binds, because the user's code
+    // already runs inside a wrapper function. A top-level `global` is harmless.
+    if (scopeIndex && this.pythonHasGlobalInsideFunction(scopeIndex)) {
+      errors.push({
+        type: 'invalid_value',
+        property: 'pythonCode',
+        message: 'global does not work: your code runs inside a wrapper function',
+        fix: 'Use nonlocal instead of global'
+      });
+    }
+
     // Check indentation after colons
     lines.forEach((line, i) => {
       if (line.trim().endsWith(':') && i < lines.length - 1) {
@@ -1444,14 +1943,15 @@ export class NodeSpecificValidators {
     errors: ValidationError[],
     warnings: ValidationWarning[],
     suggestions: string[],
-    mode: string = 'runOnceForAllItems'
+    mode: string = 'runOnceForAllItems',
+    modeIsKnown: boolean = true
   ): void {
     // Detect a *real* top-level return. For JS, scan the stripped view so a
     // return that only appears inside a comment, string, or nested function
     // body (e.g. `// return "x"`) does not satisfy the "must return data" check.
     // Skip the strip for very large code (mirrors hasTopLevelPrimitiveReturn).
-    const returnScanCode = (language === 'javaScript' && code.length <= MAX_CODE_LENGTH)
-      ? this.stripNestedJavaScriptFunctionBodies(code)
+    const returnScanCode = language === 'javaScript'
+      ? this.withinCapOrRaw(code, c => this.stripNestedJavaScriptFunctionBodies(c))
       : code;
     const hasReturn = /return\s+/.test(returnScanCode);
 
@@ -1506,38 +2006,140 @@ export class NodeSpecificValidators {
       }
     }
     
-    // Python return format validation
-    if (language === 'python') {
+    // Python return format validation. Helper-function bodies are blanked so a
+    // `return None` inside a helper is not read as the node's return value.
+    // Both shapes depend on the mode, so both are skipped when the mode is an
+    // expression resolved at runtime.
+    if (language === 'python' && modeIsKnown) {
       const isRunOncePerItem = mode === 'runOnceForEachItem';
 
-      // Check for dict return without list
-      if (!isRunOncePerItem && /return\s+{(?!.*\[).*}$/s.test(code)) {
-        errors.push({
-          type: 'invalid_value',
-          property: 'pythonCode',
-          message: 'Return value must be a list of dicts',
-          fix: 'Wrap in list: return [{"json": your_dict}]'
-        });
-      }
-
-      // Check for primitive return
-      if (!isRunOncePerItem && /return\s+(True|False|None|\d+|['"`])/m.test(code)) {
-        errors.push({
-          type: 'invalid_value',
-          property: 'pythonCode',
-          message: 'Cannot return primitive values directly',
-          fix: 'Return list of dicts: return [{"json": {"value": your_data}}]'
-        });
+      if (isRunOncePerItem) {
+        // A list return in each-item mode fails with
+        // "A 'json' property isn't a dictionary [item 0]".
+        const strippedTopLevel = this.withinCapOrRaw(
+          code, c => this.stripPythonFunctionBodies(this.stripPythonStringsAndComments(c))
+        );
+        if (this.pythonReturnsWholeGroup(strippedTopLevel, /^[ \t]*return[ \t]+\[/)
+            || this.pythonReturnsWholeGroup(strippedTopLevel, /^[ \t]*return[ \t]+list[ \t]*\(/)
+            || /^[ \t]*return[ \t]+_items[ \t]*;?[ \t]*$/m.test(strippedTopLevel)) {
+          errors.push({
+            type: 'invalid_value',
+            property: 'pythonCode',
+            message: 'Returning a list in "Run Once for Each Item" mode fails: a \'json\' property isn\'t a dictionary',
+            fix: 'Return a single dict: return {"json": {"value": your_data}}'
+          });
+        }
+      } else {
+        // A single dict and a list of plain dicts are both auto-wrapped by
+        // native Python, so only primitive returns are rejected here. String
+        // delimiters are kept so `return "x"` (and `return f"x"`) is still
+        // visible after comments and string contents are blanked.
+        const topLevel = this.withinCapOrRaw(
+          code, c => this.stripPythonFunctionBodies(this.stripPythonStringsAndComments(c, true))
+        );
+        if (/return\s+(?:(?:True|False|None)\b|\d|[rbfu]{0,2}['"])/m.test(topLevel)) {
+          errors.push({
+            type: 'invalid_value',
+            property: 'pythonCode',
+            message: 'Cannot return primitive values directly',
+            fix: 'Return list of dicts: return [{"json": {"value": your_data}}]'
+          });
+        }
       }
     }
   }
 
-  private static hasTopLevelPrimitiveReturn(code: string): boolean {
-    if (code.length > MAX_CODE_LENGTH) {
-      return JS_PRIMITIVE_RETURN_RE.test(code);
+  /**
+   * True when a `return` whose head matches `prefix` returns that bracket group
+   * whole - the group's matching close ends the statement. `return [...][0]`
+   * returns an element, not a list, so it does not count.
+   *
+   * `prefix` must end at the opening bracket and be anchored at line start.
+   */
+  private static pythonReturnsWholeGroup(scan: string, prefix: RegExp): boolean {
+    const matcher = new RegExp(prefix.source, 'gm');
+    let budget = MAX_RETURN_TOTAL_SCAN;
+    let match: RegExpExecArray | null;
+
+    while ((match = matcher.exec(scan)) !== null) {
+      // The prefix ends at the opening bracket.
+      let position = match.index + match[0].length - 1;
+      const limit = Math.min(scan.length, position + MAX_RETURN_LOOKAHEAD, position + budget);
+      let depth = 0;
+      let closed = -1;
+
+      for (; position < limit; position++) {
+        const char = scan[position];
+        if (char === '[' || char === '(' || char === '{') depth++;
+        else if (char === ']' || char === ')' || char === '}') {
+          depth--;
+          if (depth === 0) { closed = position; break; }
+        }
+      }
+      budget -= position - (match.index + match[0].length - 1);
+      if (budget <= 0) return false;
+      if (closed === -1) continue;
+
+      // Whatever follows on that line decides it: `return [...]` returns the
+      // list, `return [...][0]` returns one element.
+      const lineEnd = scan.indexOf('\n', closed);
+      const rest = scan.slice(closed + 1, lineEnd === -1 ? scan.length : lineEnd);
+      if (rest.replace(/;+[ \t]*$/, '').trim() === '') return true;
     }
 
-    const topLevelCode = this.stripNestedJavaScriptFunctionBodies(code);
+    return false;
+  }
+
+  /**
+   * Blanks the body of every `def` / `class` block (indentation-based) while
+   * keeping the line count, so return-shape checks only see the node's own
+   * top-level returns.
+   */
+  private static stripPythonFunctionBodies(code: string): string {
+    const lines = code.split('\n');
+    const result: string[] = [];
+    let blockIndent: number | null = null;
+    // A `def` header can span lines; its closing `):` is usually unindented,
+    // which would otherwise be read as the end of the body. The header ends at
+    // the first `:` outside brackets, so `def f(): return 1` ends on its own
+    // line even though it does not END with a colon.
+    let header: string | null = null;
+
+    for (const line of lines) {
+      const indentMatch = line.match(/^[ \t]*/);
+      const indent = indentMatch ? indentMatch[0].length : 0;
+      const isBlank = line.trim() === '';
+
+      if (header !== null) {
+        header += `\n${line}`;
+        result.push('');
+        if (this.pythonHeaderColonIndex(header) !== -1) header = null;
+        continue;
+      }
+
+      if (blockIndent !== null) {
+        if (isBlank || indent > blockIndent) {
+          result.push('');
+          continue;
+        }
+        blockIndent = null;
+      }
+
+      if (/^[ \t]*(?:async[ \t]+)?(?:def|class)[ \t]+\w/.test(line)) {
+        blockIndent = indent;
+        header = this.pythonHeaderColonIndex(line) === -1 ? line : null;
+        result.push('');
+        continue;
+      }
+
+      result.push(line);
+    }
+
+    return result.join('\n');
+  }
+
+  private static hasTopLevelPrimitiveReturn(code: string): boolean {
+    const topLevelCode = this.withinCapOrRaw(code, c => this.stripNestedJavaScriptFunctionBodies(c));
     return JS_PRIMITIVE_RETURN_RE.test(topLevelCode);
   }
 
@@ -1707,12 +2309,34 @@ export class NodeSpecificValidators {
     return result;
   }
 
+  /** Is the identifier run ending at `end` (exclusive) an f-string prefix? */
+  private static isFStringPrefix(code: string, end: number): boolean {
+    let start = end;
+    while (start > 0 && /[A-Za-z]/.test(code[start - 1])) start--;
+    if (start === end || end - start > 2) return false;
+    if (start > 0 && /[\w$]/.test(code[start - 1])) return false;
+    const prefix = code.slice(start, end);
+    return /^[rbuRBU]?[fF]$|^[fF][rbuRBU]?$/.test(prefix);
+  }
+
   /**
    * Blanks Python string literals (single/double/triple-quoted) and `#` line
    * comments so heuristic substring checks don't fire on string content.
    * Newlines are preserved to keep the view line-aligned with the source.
+   *
+   * An f-string's `{...}` replacement fields ARE code and are kept, so
+   * `f"{_input.all()}"` is still seen by the rules.
+   *
+   * `keepDelimiters` echoes the quote characters instead of blanking them, so a
+   * caller can still tell that a string was there (e.g. `return "x"`) while its
+   * content and any comments are gone. `keepContent` echoes the literal whole,
+   * blanking comments only - used to inspect format strings.
    */
-  private static stripPythonStringsAndComments(code: string): string {
+  private static stripPythonStringsAndComments(
+    code: string,
+    keepDelimiters: boolean = false,
+    keepContent: boolean = false
+  ): string {
     let result = '';
     let i = 0;
     while (i < code.length) {
@@ -1729,7 +2353,9 @@ export class NodeSpecificValidators {
       if (char === "'" || char === '"') {
         const triple = code.slice(i, i + 3) === char.repeat(3);
         const delim = triple ? char.repeat(3) : char;
-        result += ' '.repeat(delim.length);
+        const blankedDelim = keepDelimiters || keepContent ? delim : ' '.repeat(delim.length);
+        const isFString = !keepContent && this.isFStringPrefix(code, i);
+        result += blankedDelim;
         i += delim.length;
         while (i < code.length) {
           if (code[i] === '\\') {
@@ -1738,9 +2364,36 @@ export class NodeSpecificValidators {
             continue;
           }
           if (code.slice(i, i + delim.length) === delim) {
-            result += ' '.repeat(delim.length);
+            result += blankedDelim;
             i += delim.length;
             break;
+          }
+          // An f-string replacement field holds real code. `{{` is a literal
+          // brace, not a field. A string literal nested inside the field is
+          // still data, so its content is blanked like any other.
+          if (isFString && code[i] === '{' && code[i + 1] !== '{') {
+            let depth = 0;
+            let nestedQuote = '';
+            do {
+              const current = code[i];
+              if (nestedQuote) {
+                if (current === nestedQuote) nestedQuote = '';
+                result += current === '\n' ? '\n' : ' ';
+                i++;
+                continue;
+              }
+              if (current === "'" || current === '"') nestedQuote = current;
+              else if (current === '{') depth++;
+              else if (current === '}') depth--;
+              result += current === '\n' ? '\n' : current;
+              i++;
+            } while (i < code.length && depth > 0);
+            continue;
+          }
+          if (isFString && code[i] === '{' && code[i + 1] === '{') {
+            result += '  ';
+            i += 2;
+            continue;
           }
           // A single-quoted (non-triple) string cannot span a raw newline;
           // treat it as terminated to stay in sync on malformed code.
@@ -1749,7 +2402,7 @@ export class NodeSpecificValidators {
             i++;
             break;
           }
-          result += code[i] === '\n' ? '\n' : ' ';
+          result += keepContent || code[i] === '\n' ? code[i] : ' ';
           i++;
         }
         continue;
@@ -1858,25 +2511,26 @@ export class NodeSpecificValidators {
     language: string,
     warnings: ValidationWarning[],
     suggestions: string[],
-    errors: ValidationError[]
+    errors: ValidationError[],
+    mode: string = 'runOnceForAllItems'
   ): void {
     // Several heuristics below scan a stripped view (string/comment/regex
     // contents blanked) so tokens inside string literals cannot trip them.
     // Function-body code is KEPT so the checks also see inside `.map()`/
     // `.filter()` callbacks. Falls back to the raw code above the length cap
     // (mirrors other checks).
-    const scanView = code.length <= MAX_CODE_LENGTH
-      ? (language === 'javaScript'
-        ? this.stripStringsCommentsRegex(code)
-        : this.stripPythonStringsAndComments(code))
-      : code;
+    const scanView = this.withinCapOrRaw(code, c => language === 'javaScript'
+      ? this.stripStringsCommentsRegex(c)
+      : this.stripPythonStringsAndComments(c));
 
     // Check if code accesses input data. `$(` covers the $('Node Name')
     // accessor; static/workflow context references mark intentional
     // no-input (generator-style) nodes.
+    // Python: the legacy names count as "references input" so code using them
+    // gets the removed-global error only, not an extra no-input warning.
     const inputPatterns = language === 'javaScript'
       ? ['items', '$input', '$json', '$node', '$prevNode', '$(', '$getWorkflowStaticData', '$workflow', '$execution', '$vars']
-      : ['items', '_input'];
+      : ['_items', '_item', '_input', '_json'];
 
     // Scan the stripped view so a pattern inside a string literal or comment
     // (e.g. a log message mentioning "$json") doesn't count as input access;
@@ -1884,12 +2538,15 @@ export class NodeSpecificValidators {
     const usesInput = inputPatterns.some(pattern => scanView.includes(pattern));
 
     if (!usesInput && code.length > 50) {
+      const pythonSuggestion = mode === 'runOnceForEachItem'
+        ? 'Access input with: _item (the current item dict)'
+        : 'Access input with: _items (the list of item dicts)';
       warnings.push({
         type: 'best_practice',
         message: 'Code doesn\'t reference input data',
         suggestion: language === 'javaScript'
           ? 'Access input with: items, $input.all(), or $json (single-item mode)'
-          : 'Access input with: items variable'
+          : pythonSuggestion
       });
     }
 
@@ -1905,29 +2562,33 @@ export class NodeSpecificValidators {
       });
     }
     
-    // Check for wrong $node syntax
-    if (code.includes('$node[')) {
+    // Check for wrong $node syntax. JavaScript only: `$('Node Name')` has no
+    // Python equivalent, so the suggestion would be wrong advice there.
+    if (language === 'javaScript' && code.includes('$node[')) {
       warnings.push({
         type: 'invalid_value',
-        property: language === 'python' ? 'pythonCode' : 'jsCode',
+        property: 'jsCode',
         message: 'Use $(\'Node Name\') instead of $node[\'Node Name\'] in Code nodes',
         suggestion: 'Replace $node[\'NodeName\'] with $(\'NodeName\')'
       });
     }
-    
-    // Check for expression-only functions
-    const expressionOnlyFunctions = ['$now()', '$today()', '$tomorrow()', '.unique()', '.pluck(', '.keys()', '.hash('];
-    expressionOnlyFunctions.forEach(func => {
-      if (code.includes(func)) {
-        warnings.push({
-          type: 'invalid_value',
-          property: language === 'python' ? 'pythonCode' : 'jsCode',
-          message: `${func} is an expression-only function not available in Code nodes`,
-          suggestion: 'See Code node documentation for alternatives'
-        });
-      }
-    });
-    
+
+    // Check for expression-only functions. JavaScript only: `$now()` cannot
+    // appear in Python, and `.keys()` is an ordinary dict method there.
+    if (language === 'javaScript') {
+      const expressionOnlyFunctions = ['$now()', '$today()', '$tomorrow()', '.unique()', '.pluck(', '.keys()', '.hash('];
+      expressionOnlyFunctions.forEach(func => {
+        if (code.includes(func)) {
+          warnings.push({
+            type: 'invalid_value',
+            property: 'jsCode',
+            message: `${func} is an expression-only function not available in Code nodes`,
+            suggestion: 'See Code node documentation for alternatives'
+          });
+        }
+      });
+    }
+
     // Check for common variable mistakes
     if (language === 'javaScript') {
       // Using $ without proper variable. Scans the stripped view so `$` in
@@ -2010,12 +2671,12 @@ export class NodeSpecificValidators {
       }
     }
     
-    // Check for JMESPath filters with unquoted numeric literals (both JS and Python).
+    // Check for JMESPath filters with unquoted numeric literals. JavaScript
+    // only: native Python has no _jmespath, which validatePythonCode reports.
     // Length guard: this scans the full Code-node body, which is bounded.
     // Prevents CodeQL polynomial-ReDoS on crafted input with many unmatched
     // `[` / `]` brackets around the filter pattern.
-    const jmespathFunction = language === 'javaScript' ? '$jmespath' : '_jmespath';
-    if (code.length <= MAX_CODE_LENGTH && code.includes(jmespathFunction + '(')) {
+    if (language === 'javaScript' && code.length <= MAX_CODE_LENGTH && code.includes('$jmespath(')) {
       // Look for filter expressions with comparison operators and numbers
       const filterPattern = /\[?\?[^[\]]*(?:>=?|<=?|==|!=)\s*(\d+(?:\.\d+)?)\s*\]/g;
       let match;
@@ -2029,7 +2690,7 @@ export class NodeSpecificValidators {
         if (!beforeNumber.includes('`') || !afterNumber.startsWith('`')) {
           errors.push({
             type: 'invalid_value',
-            property: language === 'python' ? 'pythonCode' : 'jsCode',
+            property: 'jsCode',
             message: `JMESPath numeric literal ${number} must be wrapped in backticks`,
             fix: `Change [?field >= ${number}] to [?field >= \`${number}\`]`
           });
@@ -2058,7 +2719,10 @@ export class NodeSpecificValidators {
     // Security checks. The lookbehind excludes member access (regex.exec(),
     // obj.eval()) and identifiers that merely end in the keyword
     // (getUserFunction(), retrieval()).
-    const dangerousPatterns = [
+    // Python patterns live in validatePythonCode: eval/exec are denied builtins
+    // there (reported as errors) and every import is reported against the
+    // allowlist, so repeating them here would only duplicate messages.
+    const dangerousPatterns = language !== 'javaScript' ? [] : [
       { pattern: /(?<![.\w$])eval\s*\(/, message: 'Avoid eval() - it\'s a security risk' },
       { pattern: /(?<![.\w$])Function\s*\(/, message: 'Avoid Function constructor - use regular functions' },
       // Global-object forms (window.eval(), globalThis.Function()) slip past the

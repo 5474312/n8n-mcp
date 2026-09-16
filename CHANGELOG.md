@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.87.0] - 2026-09-16
+
+### Changed
+
+- **Python Code-node validation models n8n 2.x native Python** ([#1113](https://github.com/czlonkowski/n8n-mcp/issues/1113)). The checks still described the Pyodide "Python (Beta)" runtime that n8n 2.0 removed. On the native task runner only `_items` (all-items mode) and `_item` (each-item mode) exist, items are plain dicts, imports are blocked unless the instance allowlists the module (none on n8n Cloud), and the sandbox denies `class` definitions, a set of builtins (`type`, `getattr`, `open`, `eval` and the rest), dunder attribute access and `global` inside a function. The validator now reports as errors the removed globals `_input`, `_json`, `_node`, `_now`, `_today`, `_jmespath` and the JavaScript habit `items` (with the native replacement), `_items` or `_item` used in the wrong mode, `.json` attribute access on an item, `class`, denied builtins, dunder access (including inside format strings), `global` inside a function, and a list returned in each-item mode; every `import` is a warning that survives the `runtime` and `minimal` profiles. A single dict returned in all-items mode, which native Python wraps into one item, is accepted, and the "return must be a list of dicts" error is gone. References are resolved per scope, so a parameter or local named like a removed global does not fire inside its function, f-string fields count as code, and every scan stays linear on adversarial input. `_jmespath` is reported as a removed global instead of getting JMESPath advice. The Python samples in the task templates and `get_node` examples are native too.
+- **Validation errors are de-duplicated by message, not by property** ([#1103](https://github.com/czlonkowski/n8n-mcp/issues/1103) follow-up). `validate_node` and `validate_workflow` kept one error per property, so six Python defects, or five malformed IF operators, surfaced as one, chosen by message length. Only exact repeats collapse now; `missing_required` still collapses per property and keeps the more specific wording. The two validators that reported the same defect twice under the old rule (fixedCollection pattern prefixes, MongoDB collection) report it once, and a null value for a required property no longer adds a type error to the required-property error. Over the bundled templates this changed nothing for non-Python nodes apart from removing one false enum error on a null optional value.
+
+### Fixed
+
+- **`validate_node` no longer reports "Code cannot be empty" for `language: pythonNative`** ([#1112](https://github.com/czlonkowski/n8n-mcp/issues/1112)). The base validator compared the language against `python` only and read `jsCode`; it now treats `pythonNative` the same way the node-specific checks already did.
+- **`python_code_node_guide` documents native Python** ([#1116](https://github.com/czlonkowski/n8n-mcp/issues/1116)). Both the essentials and the full guide described `_input.all()`, `_json` and stdlib imports that fail on every n8n 2.x instance. They now cover `pythonNative`, `_items`/`_item`, dict access, the import allowlist (none on Cloud, a custom runner image self-hosted), the sandbox limits, `nonlocal` instead of `global` inside functions, the accepted return shapes per mode, a Pyodide-to-native migration table, `pairedItem`, `onError: continueErrorOutput`, and the `n8nio/runners` sidecar that self-hosted Docker needs ("Python runner unavailable" otherwise).
+
 ## [2.86.0] - 2026-09-16
 
 ### Changed
