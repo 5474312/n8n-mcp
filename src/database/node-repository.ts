@@ -10,6 +10,7 @@ import { ParsedNode, normalizeNodeVersion } from '../parsers/node-parser';
 import { SQLiteStorageService } from '../services/sqlite-storage-service';
 import { NodeTypeNormalizer } from '../utils/node-type-normalizer';
 import { logger } from '../utils/logger';
+import { NPM_MISSING_README_PLACEHOLDER } from '../constants/npm-readme';
 
 // Default retention window for workflow version backups (days). Configurable
 // via WORKFLOW_VERSION_RETENTION_DAYS; set to 0 to disable age-based pruning.
@@ -771,11 +772,22 @@ export class NodeRepository {
   /**
    * Update the README content for a node
    */
-  updateNodeReadme(nodeType: string, readme: string): void {
-    const stmt = this.db.prepare(`
-      UPDATE nodes SET npm_readme = ? WHERE node_type = ?
-    `);
+  updateNodeReadme(nodeType: string, readme: string, options: { clearSummary?: boolean } = {}): void {
+    // clearSummary drops a summary that was generated from the README being replaced.
+    const stmt = this.db.prepare(options.clearSummary
+      ? 'UPDATE nodes SET npm_readme = ?, ai_documentation_summary = NULL, ai_summary_generated_at = NULL WHERE node_type = ?'
+      : 'UPDATE nodes SET npm_readme = ? WHERE node_type = ?');
     stmt.run(compressColumnText(readme), nodeType);
+  }
+
+  /**
+   * Remove a node's README and the AI summary generated from it
+   */
+  clearNodeReadme(nodeType: string): void {
+    this.db.prepare(`
+      UPDATE nodes SET npm_readme = NULL, ai_documentation_summary = NULL, ai_summary_generated_at = NULL
+      WHERE node_type = ?
+    `).run(nodeType);
   }
 
   /**
@@ -847,11 +859,12 @@ export class NodeRepository {
    * Get community nodes that are missing README content
    */
   getCommunityNodesWithoutReadme(): any[] {
+    // npm's placeholder is short enough to be stored uncompressed, so SQL can match it.
     const rows = this.db.prepare(`
       SELECT * FROM nodes
-      WHERE is_community = 1 AND (npm_readme IS NULL OR npm_readme = '')
+      WHERE is_community = 1 AND (npm_readme IS NULL OR npm_readme = '' OR npm_readme = ?)
       ORDER BY npm_downloads DESC
-    `).all() as any[];
+    `).all(NPM_MISSING_README_PLACEHOLDER) as any[];
     return rows.map(row => this.parseNodeRow(row));
   }
 
@@ -862,10 +875,10 @@ export class NodeRepository {
     const rows = this.db.prepare(`
       SELECT * FROM nodes
       WHERE is_community = 1
-        AND npm_readme IS NOT NULL AND npm_readme != ''
+        AND npm_readme IS NOT NULL AND npm_readme != '' AND npm_readme != ?
         AND (ai_documentation_summary IS NULL OR ai_documentation_summary = '')
       ORDER BY npm_downloads DESC
-    `).all() as any[];
+    `).all(NPM_MISSING_README_PLACEHOLDER) as any[];
     return rows.map(row => this.parseNodeRow(row));
   }
 
@@ -884,12 +897,13 @@ export class NodeRepository {
     ).get() as any).count;
 
     const withReadme = (this.db.prepare(
-      "SELECT COUNT(*) as count FROM nodes WHERE is_community = 1 AND npm_readme IS NOT NULL AND npm_readme != ''"
-    ).get() as any).count;
+      "SELECT COUNT(*) as count FROM nodes WHERE is_community = 1 AND npm_readme IS NOT NULL AND npm_readme != '' AND npm_readme != ?"
+    ).get(NPM_MISSING_README_PLACEHOLDER) as any).count;
 
+    // Only summaries of rows that count as having a README, so needingAISummary cannot go negative.
     const withAISummary = (this.db.prepare(
-      "SELECT COUNT(*) as count FROM nodes WHERE is_community = 1 AND ai_documentation_summary IS NOT NULL AND ai_documentation_summary != ''"
-    ).get() as any).count;
+      "SELECT COUNT(*) as count FROM nodes WHERE is_community = 1 AND npm_readme IS NOT NULL AND npm_readme != '' AND npm_readme != ? AND ai_documentation_summary IS NOT NULL AND ai_documentation_summary != ''"
+    ).get(NPM_MISSING_README_PLACEHOLDER) as any).count;
 
     return {
       total,

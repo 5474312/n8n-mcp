@@ -113,6 +113,14 @@ gh release list | head -1
 **Reason**: Integration tests need live n8n instance (slow)
 **Normal**: Unit tests (~2 min) + integration tests (~6 min) = ~8 min total
 
+**Problem**: `npm run update:n8n` stops at the database rebuild with `no such module: fts5`, after a warning that better-sqlite3 was compiled against a different Node.js version
+**Cause**: npm 11 skips the install scripts of packages not covered by `allowScripts`, so `npm install` does not recompile better-sqlite3 for the current Node.js and the rebuild falls back to sql.js, which has no FTS5
+**Solution**: `npm rebuild better-sqlite3`, then `npm run build && npm run rebuild && npm run validate`
+
+**Problem**: `generate:docs:readme-only` exits with code 1
+**Reason**: Some packages have no README anywhere (the fetch reads the tarball when the registry metadata has none) or are no longer on npm
+**Normal**: A few failed fetches are expected; check the "With README" count instead of the exit code
+
 ## Quick One-Command Update
 
 For a complete update with tests and publish preparation:
