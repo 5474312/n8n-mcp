@@ -177,6 +177,11 @@ export async function handleUpdatePartialWorkflow(
   let workflowBefore: any = null;
   let validationBefore: any = null;
   let validationAfter: any = null;
+  // Set only for the "restore incomplete" (partialRestoration) rollback outcome, deep
+  // inside the update-workflow catch below — hoisted here so the telemetry catch at the
+  // bottom of this function (a sibling of that nested scope, not a descendant of it) can
+  // read it too.
+  let partialRestorationObservedWorkflow: unknown;
 
   try {
     // Debug logging (only in debug mode)
@@ -553,6 +558,10 @@ export async function handleUpdatePartialWorkflow(
                 // observed rather than guessing which of the two known states it's in.
                 partialRestoration = true;
                 observedDraftVersionId = (afterRollback as any)?.versionId;
+                // The verification GET succeeded here — afterRollback IS the real
+                // persisted state, unlike the other non-retained outcomes where we only
+                // know what the server ISN'T holding. Telemetry uses this as workflowAfter.
+                partialRestorationObservedWorkflow = afterRollback;
                 logger.warn('rollback PUT errored and the readback matches neither the prior nor the attempted content', {
                   workflowId: input.id,
                   rollbackError: rollbackErrorMessage,
@@ -646,7 +655,13 @@ export async function handleUpdatePartialWorkflow(
                 'The published version is unchanged.',
                 outcomeSentence,
                 'Retrying with the same credentials will not publish it — the API key needs the workflow:activate scope, and the user needs workflow:publish permission on this workflow.',
-                folderMoveInPayload && rollbackPerformed
+                // A folder move on the first PUT is never rolled back regardless of
+                // outcome (rolled back, retained, incomplete or unconfirmed) — n8n never
+                // returns parentFolderId, so there is nothing to restore it from and no
+                // way to confirm it either way. Gate on the payload alone, not on
+                // rollbackPerformed, or this caveat silently disappears for every
+                // outcome except the clean rollback.
+                folderMoveInPayload
                   ? 'A folder move in the failed update may have persisted — n8n cannot report or restore folder placement.'
                   : '',
               ].filter(Boolean).join(' ');
@@ -657,7 +672,7 @@ export async function handleUpdatePartialWorkflow(
                 ...priorVersionDetail,
                 rollbackPerformed,
                 ...(rollbackVerifiedAfterError ? { rollbackVerifiedAfterError: true } : {}),
-                ...folderMoveDetail,
+                ...(folderMoveInPayload ? { folderMoveMayHavePersisted: true } : {}),
                 ...rollbackErrorDetail,
                 ...warningsDetail,
               };
@@ -875,18 +890,25 @@ export async function handleUpdatePartialWorkflow(
         // `rollbackPerformed: false` in its details — never persisted anything, so
         // workflowBefore remains accurate; do not key this off the presence of a
         // `rollbackPerformed` field, or those cases wrongly fall through to "unknown".
-        // For PUBLISH_FORBIDDEN, report the attempted content only when it's confirmed
-        // still retained (changeRetained). Every other outcome — rolled back, restore
-        // incomplete, or unconfirmed — falls back to workflowBefore: the best known
-        // content, even where it isn't certain (restore incomplete/unconfirmed). Always
-        // recording SOME workflowAfter matters more than precision here — MutationTracker
-        // rejects an event with none, so omitting it here dropped these failures entirely.
+        // For PUBLISH_FORBIDDEN, report the attempted content when it's confirmed still
+        // retained (changeRetained), or the actually-observed content when the restore
+        // was confirmed incomplete (partialRestoration — the verification GET succeeded,
+        // so we know the real state, unlike the unconfirmed outcome where it didn't).
+        // Every other outcome — rolled back, or unconfirmed — falls back to
+        // workflowBefore: the best known content, even where it isn't certain
+        // (unconfirmed). Always recording SOME workflowAfter matters more than precision
+        // here — MutationTracker rejects an event with none, so omitting it here dropped
+        // these failures entirely. (MutationTracker also drops an event whose before/after
+        // are identical — pre-existing behavior for every failed update, unrelated to this
+        // fallback, and unchanged here.)
         const details = error instanceof N8nApiError && error.code === 'PUBLISH_FORBIDDEN'
           ? (error.details as Record<string, unknown> | undefined)
           : undefined;
         const workflowAfterOverride: Record<string, unknown> = details?.changeRetained === true && diffResult?.workflow
           ? { workflowAfter: diffResult.workflow }
-          : { workflowAfter: workflowBefore };
+          : partialRestorationObservedWorkflow !== undefined
+            ? { workflowAfter: partialRestorationObservedWorkflow }
+            : { workflowAfter: workflowBefore };
         void trackWorkflowMutation({
           sessionId,
           toolName: 'n8n_update_partial_workflow',
