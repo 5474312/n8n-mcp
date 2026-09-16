@@ -17,7 +17,8 @@ export interface CleanupOrphanedWorkflowsOptions {
   /**
    * Minimum age (in ms) a workflow must have before it is eligible for
    * deletion, based on `updatedAt` (falling back to `createdAt`). Workflows
-   * with neither timestamp are treated as old and are deletable.
+   * with neither timestamp are kept when the age is positive, since their age
+   * cannot be established; `minAgeMs` of 0 deletes every candidate.
    *
    * Defaults to 5 minutes. This reduces (does not eliminate) the chance of
    * deleting a workflow another run recently created or updated.
