@@ -337,18 +337,30 @@ describe('EnhancedConfigValidator', () => {
   });
 
   describe('deduplicateErrors', () => {
-    it('should remove duplicate errors for the same property and type', () => {
+    it('should remove repeats of the same message on a property', () => {
       const errors = [
-        { type: 'missing_required', property: 'channel', message: 'Short message' },
-        { type: 'missing_required', property: 'channel', message: 'Much longer and more detailed message with specific fix' },
+        { type: 'missing_required', property: 'channel', message: 'Channel is required' },
+        { type: 'missing_required', property: 'channel', message: 'Channel is required' },
         { type: 'invalid_type', property: 'channel', message: 'Different type error' }
       ];
 
       const deduplicated = EnhancedConfigValidator['deduplicateErrors'](errors as ValidationError[]);
 
       expect(deduplicated).toHaveLength(2);
-      // Should keep the longer message
-      expect(deduplicated.find(e => e.type === 'missing_required')?.message).toContain('longer');
+    });
+
+    it('should keep distinct findings on the same property and type', () => {
+      // Several rules can fail on one property (e.g. the native-Python rules all
+      // report against pythonCode). Each is a separate defect to fix.
+      const errors = [
+        { type: 'invalid_value', property: 'pythonCode', message: '_input does not exist in native Python' },
+        { type: 'invalid_value', property: 'pythonCode', message: 'Items are dicts: .json attribute access raises AttributeError' },
+        { type: 'invalid_value', property: 'pythonCode', message: 'class definitions fail in the sandbox' }
+      ];
+
+      const deduplicated = EnhancedConfigValidator['deduplicateErrors'](errors as ValidationError[]);
+
+      expect(deduplicated).toHaveLength(3);
     });
 
     it('should prefer errors with fix information over those without', () => {
@@ -361,6 +373,18 @@ describe('EnhancedConfigValidator', () => {
 
       expect(deduplicated).toHaveLength(1);
       expect(deduplicated[0].fix).toBeDefined();
+    });
+
+    it('should keep the most specific wording when required errors collapse', () => {
+      const errors = [
+        { type: 'missing_required', property: 'table', message: "Required property 'Table' cannot be empty" },
+        { type: 'missing_required', property: 'table', message: 'Table name is required for insert operation', fix: 'Specify the table to insert data into' }
+      ];
+
+      const deduplicated = EnhancedConfigValidator['deduplicateErrors'](errors as ValidationError[]);
+
+      expect(deduplicated).toHaveLength(1);
+      expect(deduplicated[0].message).toBe('Table name is required for insert operation');
     });
 
     it('should handle empty error arrays', () => {

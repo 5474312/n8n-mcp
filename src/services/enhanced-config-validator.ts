@@ -523,7 +523,8 @@ export class EnhancedConfigValidator extends ConfigValidator {
     const valueErrors = result.errors.filter(e => e.type === 'invalid_value');
     
     if (requiredErrors.length > 0) {
-      steps.push(`Add required fields: ${requiredErrors.map(e => e.property).join(', ')}`);
+      const properties = [...new Set(requiredErrors.map(e => e.property))];
+      steps.push(`Add required fields: ${properties.join(', ')}`);
     }
     
     if (typeErrors.length > 0) {
@@ -554,19 +555,28 @@ export class EnhancedConfigValidator extends ConfigValidator {
     const seen = new Map<string, ValidationError>();
     
     for (const error of errors) {
-      const key = `${error.property}-${error.type}`;
+      // Includes the message: two distinct findings on the same property (e.g.
+      // several native-Python rules on pythonCode) are different defects and the
+      // user needs to see all of them. Only exact repeats collapse.
+      //
+      // Except for missing_required: "the property is missing" is one defect
+      // however many validators phrase it, so those still collapse per property.
+      const key = error.type === 'missing_required'
+        ? `${error.property}-${error.type}`
+        : `${error.property}-${error.type}-${error.message}`;
       const existing = seen.get(key);
-      
+
       if (!existing) {
         seen.set(key, error);
-      } else {
-        // Keep the error with more specific message or fix
+        continue;
+      }
+
+      // Only missing_required can collapse two differently worded errors, so
+      // only there is there a choice to make: keep the most specific wording.
+      if (error.type === 'missing_required') {
         const existingLength = (existing.message?.length || 0) + (existing.fix?.length || 0);
         const newLength = (error.message?.length || 0) + (error.fix?.length || 0);
-        
-        if (newLength > existingLength) {
-          seen.set(key, error);
-        }
+        if (newLength > existingLength) seen.set(key, error);
       }
     }
     
@@ -750,8 +760,17 @@ export class EnhancedConfigValidator extends ConfigValidator {
     const validationResult = FixedCollectionValidator.validate(nodeType, config);
     
     if (!validationResult.isValid) {
+      // Nested patterns describe one defect at different depths: a config with
+      // `rules.conditions.values` matches both "rules.conditions" and
+      // "rules.conditions.values". Report only the most specific match so the
+      // user sees the defect once, with the more informative message.
+      const patterns = validationResult.errors.map(e => e.pattern);
+      const specificErrors = validationResult.errors.filter(error =>
+        !patterns.some(other => other !== error.pattern && other.startsWith(`${error.pattern}.`))
+      );
+
       // Add errors to the result
-      for (const error of validationResult.errors) {
+      for (const error of specificErrors) {
         result.errors.push({
           type: 'invalid_value',
           property: error.pattern.split('.')[0], // Get the root property
@@ -759,7 +778,7 @@ export class EnhancedConfigValidator extends ConfigValidator {
           fix: error.fix
         });
       }
-      
+
       // Apply autofix if available
       if (validationResult.autofix) {
         // For nodes like If/Filter where the entire config might be replaced,
