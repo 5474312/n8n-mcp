@@ -552,7 +552,13 @@ export class WorkflowValidator {
     // Check for empty connections in multi-node workflows
     if (workflow.nodes.length > 1) {
       const hasEnabledNodes = workflow.nodes.some(n => !n.disabled);
-      const hasConnections = Object.keys(workflow.connections).length > 0;
+      // A key with empty branches (`main: [[]]`, `main: [null]`) is not a connection (#1101).
+      // A malformed output value counts, so its shape error speaks instead of this one.
+      const hasConnections = Object.values(workflow.connections).some(outputs =>
+        Object.values(outputs || {}).some(branches =>
+          !Array.isArray(branches) || branches.some(branch => !Array.isArray(branch) ? branch != null : branch.some(Boolean))
+        )
+      );
       
       if (hasEnabledNodes && !hasConnections) {
         result.errors.push({
@@ -870,10 +876,12 @@ export class WorkflowValidator {
           });
         });
 
-        // Validate If/Switch conditions structure (version-conditional)
-        if (node.type === 'n8n-nodes-base.if' || node.type === 'n8n-nodes-base.switch') {
-          const conditionErrors = validateConditionNodeStructure(node as any);
-          for (const err of conditionErrors) {
+        // The config validator above already runs the operator checks, but it keeps one
+        // error per property; this direct call reports every operator, skipping the one the
+        // config validator already surfaced so nothing appears twice.
+        if (node.type === 'n8n-nodes-base.if' || node.type === 'n8n-nodes-base.switch' || node.type === 'n8n-nodes-base.filter') {
+          for (const err of validateConditionNodeStructure(node as any)) {
+            if (result.errors.some(e => e.nodeName === node.name && e.message === err)) continue;
             result.errors.push({
               type: 'error',
               nodeId: node.id,
@@ -1107,6 +1115,31 @@ export class WorkflowValidator {
   }
 
   /**
+   * A fan-out from main[0] that includes a node named like an error handler says nothing by
+   * itself: the name is a naming choice, and Respond to Webhook or Email Send beside a
+   * side-effect node is an ordinary success path; moving such a node to the error output would
+   * make it run only on failure (#1111). It is worth a note only when the source routes
+   * failures to an error output that nothing consumes, as a hint appended to that warning.
+   */
+  private describeHandlersOnSuccessOutput(
+    outputs: ConnectionBranch[],
+    nodeMap: Map<string, WorkflowNode>,
+    errorOutputIndex: number
+  ): string {
+    if (!outputs[0] || outputs[0].length < 2) return '';
+    const namedLikeHandlers = outputs[0].filter(conn => {
+      const targetNode = nodeMap.get(conn.node);
+      return !!targetNode && /error|fail|catch|exception/.test(targetNode.name.toLowerCase());
+    });
+    if (namedLikeHandlers.length === 0) return '';
+    const isSingle = namedLikeHandlers.length === 1;
+    const names = namedLikeHandlers.map(conn => `"${conn.node}"`).join(', ');
+    return ` ${names} in main[0] ${isSingle ? 'is' : 'are'} named like an error handler: ` +
+           `if ${isSingle ? 'it handles' : 'they handle'} failed items, connect ${isSingle ? 'it' : 'them'} to main[${errorOutputIndex}] instead; ` +
+           `if ${isSingle ? 'it runs' : 'they run'} on success, leave the connection as it is.`;
+  }
+
+  /**
    * Validate error output configuration
    */
   private validateErrorOutputConfiguration(
@@ -1124,12 +1157,13 @@ export class WorkflowValidator {
     // outputs (index = natural count) — main[1] is a normal branch on IF/Switch/
     // SplitInBatches. Skip the mismatch checks when the count is unknown.
     const errorOutputIndex = this.getMainOutputCount(sourceNode);
-    if (errorOutputIndex !== null) {
-      const hasErrorConnections =
-        outputs.length > errorOutputIndex &&
-        outputs[errorOutputIndex] &&
-        outputs[errorOutputIndex].length > 0;
+    const hasErrorConnections =
+      errorOutputIndex !== null &&
+      outputs.length > errorOutputIndex &&
+      !!outputs[errorOutputIndex] &&
+      outputs[errorOutputIndex].length > 0;
 
+    if (errorOutputIndex !== null) {
       // Both mismatch checks are lint, not validity: n8n runs either config.
       // An unwired error output just drops failed items (live-verified).
       if (hasErrorOutputSetting && !hasErrorConnections && profile !== 'minimal') {
@@ -1137,7 +1171,8 @@ export class WorkflowValidator {
           type: 'warning',
           nodeId: sourceNode.id,
           nodeName: sourceNode.name,
-          message: `Node has onError: 'continueErrorOutput' but the error output (main[${errorOutputIndex}]) is not connected — failed items are silently dropped. Connect an error handler to main[${errorOutputIndex}] or change onError to 'continueRegularOutput' or 'stopWorkflow'.`
+          message: `Node has onError: 'continueErrorOutput' but the error output (main[${errorOutputIndex}]) is not connected — failed items are silently dropped. Connect an error handler to main[${errorOutputIndex}] or change onError to 'continueRegularOutput' or 'stopWorkflow'.` +
+                   this.describeHandlersOnSuccessOutput(outputs, nodeMap, errorOutputIndex)
         });
       }
 
@@ -1151,55 +1186,6 @@ export class WorkflowValidator {
       }
     }
 
-    // Check for common mistake: multiple nodes in main[0] when error handling is intended
-    if (outputs.length >= 1 && outputs[0] && outputs[0].length > 1) {
-      // Check if any of the nodes in main[0] look like error handlers
-      const potentialErrorHandlers = outputs[0].filter(conn => {
-        const targetNode = nodeMap.get(conn.node);
-        if (!targetNode) return false;
-
-        const nodeName = targetNode.name.toLowerCase();
-        const nodeType = targetNode.type.toLowerCase();
-
-        // Common patterns for error handler nodes
-        return nodeName.includes('error') ||
-               nodeName.includes('fail') ||
-               nodeName.includes('catch') ||
-               nodeName.includes('exception') ||
-               nodeType.includes('respondtowebhook') ||
-               nodeType.includes('emailsend');
-      });
-
-      if (potentialErrorHandlers.length > 0) {
-        const errorHandlerNames = potentialErrorHandlers.map(conn => `"${conn.node}"`).join(', ');
-        result.errors.push({
-          type: 'error',
-          nodeId: sourceNode.id,
-          nodeName: sourceNode.name,
-          message: `Incorrect error output configuration. Nodes ${errorHandlerNames} appear to be error handlers but are in main[0] (success output) along with other nodes.\n\n` +
-                   `INCORRECT (current):\n` +
-                   `"${sourceName}": {\n` +
-                   `  "main": [\n` +
-                   `    [  // main[0] has multiple nodes mixed together\n` +
-                   outputs[0].map(conn => `      {"node": "${conn.node}", "type": "${conn.type}", "index": ${conn.index}}`).join(',\n') + '\n' +
-                   `    ]\n` +
-                   `  ]\n` +
-                   `}\n\n` +
-                   `CORRECT (should be):\n` +
-                   `"${sourceName}": {\n` +
-                   `  "main": [\n` +
-                   `    [  // main[0] = success output\n` +
-                   outputs[0].filter(conn => !potentialErrorHandlers.includes(conn)).map(conn => `      {"node": "${conn.node}", "type": "${conn.type}", "index": ${conn.index}}`).join(',\n') + '\n' +
-                   `    ],\n` +
-                   `    [  // main[1] = error output\n` +
-                   potentialErrorHandlers.map(conn => `      {"node": "${conn.node}", "type": "${conn.type}", "index": ${conn.index}}`).join(',\n') + '\n' +
-                   `    ]\n` +
-                   `  ]\n` +
-                   `}\n\n` +
-                   `Also add: "onError": "continueErrorOutput" to the "${sourceName}" node.`
-        });
-      }
-    }
   }
 
   /**
@@ -1475,15 +1461,9 @@ export class WorkflowValidator {
     const normalizedType = NodeTypeNormalizer.normalizeToFullForm(sourceNode.type);
     const nodeInfo = this.nodeRepository.getNode(normalizedType);
     if (!nodeInfo || !nodeInfo.outputs) return null;
-    if (!Array.isArray(nodeInfo.outputs)) return null; // Dynamic outputs (expression string)
 
-    // outputs can be strings like "main" or objects with { type: "main" }
-    const mainOutputCount = nodeInfo.outputs.filter((o: any) =>
-      typeof o === 'string' ? o === 'main' : (o.type === 'main' || !o.type)
-    ).length;
-    if (mainOutputCount === 0) return null;
-
-    // Override with dynamic output counts for conditional nodes
+    // Conditional nodes first: the bundled Switch metadata carries its outputs as an
+    // expression, so the count has to come from the node's own rules.
     const conditionalInfo = this.getConditionalOutputInfo(sourceNode);
     if (conditionalInfo) {
       return conditionalInfo.expectedOutputs;
@@ -1491,6 +1471,13 @@ export class WorkflowValidator {
     if (this.getShortNodeType(sourceNode) === 'switch') {
       return null; // Switch without determinable rules
     }
+    if (!Array.isArray(nodeInfo.outputs)) return null; // Dynamic outputs (expression string)
+
+    // outputs can be strings like "main" or objects with { type: "main" }
+    const mainOutputCount = nodeInfo.outputs.filter((o: any) =>
+      typeof o === 'string' ? o === 'main' : (o.type === 'main' || !o.type)
+    ).length;
+    if (mainOutputCount === 0) return null;
 
     return mainOutputCount;
   }
@@ -1502,13 +1489,22 @@ export class WorkflowValidator {
   private getConditionalOutputInfo(sourceNode: WorkflowNode): { shortType: string; expectedOutputs: number } | null {
     const shortType = this.getShortNodeType(sourceNode);
 
-    if (shortType === 'if' || shortType === 'filter') {
+    // IF has true/false; Filter has one output (Discarded is only a name in the metadata).
+    if (shortType === 'if') {
       return { shortType, expectedOutputs: 2 };
     }
+    if (shortType === 'filter') {
+      return { shortType, expectedOutputs: 1 };
+    }
     if (shortType === 'switch') {
-      const rules = sourceNode.parameters?.rules?.values || sourceNode.parameters?.rules;
+      // Switch v1 has four fixed outputs whatever its rules say.
+      if ((sourceNode.typeVersion || 1) < 2) return null;
+      const params = sourceNode.parameters as any;
+      const rules = params?.rules?.values ?? params?.rules?.rules;
       if (Array.isArray(rules)) {
-        return { shortType, expectedOutputs: rules.length + 1 }; // rules + fallback
+        // Only `fallbackOutput: 'extra'` adds an output; 'none' or an output index does not.
+        const fallbackOutput = params?.options?.fallbackOutput ?? params?.fallbackOutput;
+        return { shortType, expectedOutputs: rules.length + (fallbackOutput === 'extra' ? 1 : 0) };
       }
       return null; // Cannot determine dynamic output count
     }
@@ -1696,16 +1692,22 @@ export class WorkflowValidator {
   ): void {
     const connectedNodes = new Set<string>();
     for (const [sourceName, outputs] of Object.entries(workflow.connections)) {
-      connectedNodes.add(sourceName);
+      // A source key with no targets (`main: [[]]`, `main: [null]`) is how n8n stores a node
+      // whose last edge was removed; it does not make the node connected (#1101).
+      let hasTarget = false;
       for (const outputConns of Object.values(outputs)) {
         if (!Array.isArray(outputConns)) continue;
         for (const conns of outputConns) {
           if (!conns) continue;
           for (const conn of conns) {
-            if (conn) connectedNodes.add(conn.node);
+            if (conn) {
+              connectedNodes.add(conn.node);
+              hasTarget = true;
+            }
           }
         }
       }
+      if (hasTarget) connectedNodes.add(sourceName);
     }
 
     for (const node of workflow.nodes) {

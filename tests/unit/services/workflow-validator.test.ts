@@ -251,18 +251,47 @@ describe('WorkflowValidator', () => {
         expect(result.errors.some(e => e.code === 'MALFORMED_CONNECTION')).toBe(true);
       });
 
+      // A non-array output value (here `{}` instead of an array of branches) is malformed but
+      // still a real, present value under a real key, so it counts toward the empty-connections
+      // check (#1101) - unlike a fully-null source value, which collapses to nothing there.
+      // Only the shape error should speak.
+      it('reports the shape error for a malformed (non-array) output value without also claiming no connections', async () => {
+        const result = await validate({ Webhook: { output: {} } });
+
+        expect(result.errors.some(e => e.code === 'MALFORMED_CONNECTION')).toBe(true);
+        expect(result.errors.some(e => /Multi-node workflow has no connections/.test(e.message))).toBe(false);
+      });
+
       // The code is internal - the MCP response maps errors to {node, message, details} and
       // drops it, as it does for every other code. What the caller sees is the ordering: the
       // shape errors are pushed before any pass runs, so they arrive first.
+      //
+      // A real connection from Set is included so the empty-connections check (#1101, which
+      // now requires a source key to name an actual target) does not also fire and take
+      // errors[0] - Webhook's own value is still the fully-malformed `null` under test.
       it('tags shape errors with a code and reports them ahead of node findings', async () => {
         const result = await validator.validateWorkflow({
           name: 'Connections',
           nodes: [webhook, { ...set, typeVersion: 99 }],
-          connections: { Webhook: null },
+          connections: { Webhook: null, Set: { main: [[{ node: 'Webhook', type: 'main', index: 0 }]] } },
         } as any);
 
         expect(result.errors[0].code).toBe('MALFORMED_CONNECTION');
         expect(result.errors.at(-1)!.message).toMatch(/typeVersion 99 exceeds/);
+      });
+
+      // Without any real target anywhere, a fully-malformed source value (`null`) is not enough
+      // to count as "has connections" - the empty-connections error fires too, ahead of the
+      // shape error, because validateWorkflowStructure runs before the connections shape gate.
+      it('also reports the empty-connections error when nothing in the workflow names a real target', async () => {
+        const result = await validator.validateWorkflow({
+          name: 'Connections',
+          nodes: [webhook, set],
+          connections: { Webhook: null },
+        } as any);
+
+        expect(result.errors.some(e => /Multi-node workflow has no connections/.test(e.message))).toBe(true);
+        expect(result.errors.some(e => e.code === 'MALFORMED_CONNECTION')).toBe(true);
       });
     });
 
@@ -751,26 +780,101 @@ describe('WorkflowValidator', () => {
   // ─── Error Handler Detection ───────────────────────────────────────
 
   describe('Error Handler Detection', () => {
-    it('should identify error handlers by node name patterns', async () => {
+    // The hard "Incorrect error output configuration" error is gone (#1111). A fan-out to a
+    // node named like an error handler is only worth a note when the source also routes
+    // failures to an error output that nothing is wired to.
+    it('warns when onError routes to an unwired error output and main[0] fans out to a node named like an error handler', async () => {
       for (const errorName of ['Error Handler', 'Handle Error', 'Catch Exception', 'Failure Response']) {
-        const result = await validator.validateWorkflow({ nodes: [{ id: '1', name: 'Source', type: 'n8n-nodes-base.httpRequest', position: [0, 0], parameters: {} }, { id: '2', name: 'Success', type: 'n8n-nodes-base.set', position: [200, 0], parameters: {} }, { id: '3', name: errorName, type: 'n8n-nodes-base.set', position: [200, 100], parameters: {} }], connections: { 'Source': { main: [[{ node: 'Success', type: 'main', index: 0 }, { node: errorName, type: 'main', index: 0 }]] } } } as any);
-        expect(result.errors.some(e => e.message.includes('Incorrect error output configuration') && e.message.includes(errorName))).toBe(true);
-      }
-    });
-
-    it('should not flag success node names as error handlers', async () => {
-      for (const name of ['Process Data', 'Transform', 'Normal Flow']) {
-        const result = await validator.validateWorkflow({ nodes: [{ id: '1', name: 'Source', type: 'n8n-nodes-base.httpRequest', position: [0, 0], parameters: {} }, { id: '2', name: 'First', type: 'n8n-nodes-base.set', position: [200, 0], parameters: {} }, { id: '3', name: name, type: 'n8n-nodes-base.set', position: [200, 100], parameters: {} }], connections: { 'Source': { main: [[{ node: 'First', type: 'main', index: 0 }, { node: name, type: 'main', index: 0 }]] } } } as any);
+        const result = await validator.validateWorkflow({
+          nodes: [
+            { id: '1', name: 'Source', type: 'n8n-nodes-base.httpRequest', position: [0, 0], parameters: {}, onError: 'continueErrorOutput' },
+            { id: '2', name: 'Success', type: 'n8n-nodes-base.set', position: [200, 0], parameters: {} },
+            { id: '3', name: errorName, type: 'n8n-nodes-base.set', position: [200, 100], parameters: {} },
+          ],
+          connections: { 'Source': { main: [[{ node: 'Success', type: 'main', index: 0 }, { node: errorName, type: 'main', index: 0 }]] } },
+        } as any);
+        expect(
+          result.warnings.some(w =>
+            w.message.includes("onError: 'continueErrorOutput' but the error output (main[1]) is not connected") &&
+            w.message.includes(errorName)
+          ),
+          `errorName=${errorName}`
+        ).toBe(true);
         expect(result.errors.some(e => e.message.includes('Incorrect error output configuration'))).toBe(false);
       }
     });
 
-    it('should generate valid JSON in error messages', async () => {
-      const result = await validator.validateWorkflow({ nodes: [{ id: '1', name: 'API Call', type: 'n8n-nodes-base.httpRequest', position: [0, 0], parameters: {} }, { id: '2', name: 'Success', type: 'n8n-nodes-base.set', position: [200, 0], parameters: {} }, { id: '3', name: 'Error Handler', type: 'n8n-nodes-base.respondToWebhook', position: [200, 100], parameters: {} }], connections: { 'API Call': { main: [[{ node: 'Success', type: 'main', index: 0 }, { node: 'Error Handler', type: 'main', index: 0 }]] } } } as any);
-      const errorMsg = result.errors.find(e => e.message.includes('Incorrect error output configuration'));
-      expect(errorMsg).toBeDefined();
-      expect(errorMsg!.message).toContain('INCORRECT (current):');
-      expect(errorMsg!.message).toContain('CORRECT (should be):');
+    it('does not warn about success node names even when onError routes to an unwired error output', async () => {
+      for (const name of ['Process Data', 'Transform', 'Normal Flow']) {
+        const result = await validator.validateWorkflow({
+          nodes: [
+            { id: '1', name: 'Source', type: 'n8n-nodes-base.httpRequest', position: [0, 0], parameters: {}, onError: 'continueErrorOutput' },
+            { id: '2', name: 'First', type: 'n8n-nodes-base.set', position: [200, 0], parameters: {} },
+            { id: '3', name: name, type: 'n8n-nodes-base.set', position: [200, 100], parameters: {} },
+          ],
+          connections: { 'Source': { main: [[{ node: 'First', type: 'main', index: 0 }, { node: name, type: 'main', index: 0 }]] } },
+        } as any);
+        expect(result.warnings.some(w => w.message.includes('named like an error handler'))).toBe(false);
+      }
+    });
+
+    it('does not warn when onError is not set, even with a fan-out named like an error handler', async () => {
+      const result = await validator.validateWorkflow({
+        nodes: [
+          { id: '1', name: 'Source', type: 'n8n-nodes-base.httpRequest', position: [0, 0], parameters: {} },
+          { id: '2', name: 'Success', type: 'n8n-nodes-base.set', position: [200, 0], parameters: {} },
+          { id: '3', name: 'Handle Error', type: 'n8n-nodes-base.set', position: [200, 100], parameters: {} },
+        ],
+        connections: { 'Source': { main: [[{ node: 'Success', type: 'main', index: 0 }, { node: 'Handle Error', type: 'main', index: 0 }]] } },
+      } as any);
+      expect(result.warnings.some(w => w.message.includes('named like an error handler'))).toBe(false);
+    });
+
+    it('does not warn when the error output is already wired', async () => {
+      const result = await validator.validateWorkflow({
+        nodes: [
+          { id: '1', name: 'Source', type: 'n8n-nodes-base.httpRequest', position: [0, 0], parameters: {}, onError: 'continueErrorOutput' },
+          { id: '2', name: 'Success', type: 'n8n-nodes-base.set', position: [200, 0], parameters: {} },
+          { id: '3', name: 'Handle Error', type: 'n8n-nodes-base.set', position: [200, 100], parameters: {} },
+          { id: '4', name: 'Real Error Handler', type: 'n8n-nodes-base.set', position: [200, 200], parameters: {} },
+        ],
+        connections: {
+          'Source': {
+            main: [
+              [{ node: 'Success', type: 'main', index: 0 }, { node: 'Handle Error', type: 'main', index: 0 }],
+              [{ node: 'Real Error Handler', type: 'main', index: 0 }],
+            ],
+          },
+        },
+      } as any);
+      expect(result.warnings.some(w => w.message.includes('named like an error handler'))).toBe(false);
+    });
+
+    // A Respond to Webhook beside a side-effect node in main[0] is an ordinary success path;
+    // node TYPE is no longer read as a signal, only the name (#1111).
+    it('does not warn about a Respond to Webhook node beside a side-effect node in main[0]', async () => {
+      const result = await validator.validateWorkflow({
+        nodes: [
+          { id: '1', name: 'API Call', type: 'n8n-nodes-base.httpRequest', position: [0, 0], parameters: {}, onError: 'continueErrorOutput' },
+          { id: '2', name: 'Log Result', type: 'n8n-nodes-base.set', position: [200, 0], parameters: {} },
+          { id: '3', name: 'Respond', type: 'n8n-nodes-base.respondToWebhook', position: [200, 100], parameters: {} },
+        ],
+        connections: { 'API Call': { main: [[{ node: 'Log Result', type: 'main', index: 0 }, { node: 'Respond', type: 'main', index: 0 }]] } },
+      } as any);
+      expect(result.warnings.some(w => w.message.includes('named like an error handler'))).toBe(false);
+      expect(result.errors.some(e => e.message.includes('Incorrect error output configuration'))).toBe(false);
+    });
+
+    it('is not emitted under the minimal profile', async () => {
+      const result = await validator.validateWorkflow({
+        nodes: [
+          { id: '1', name: 'Source', type: 'n8n-nodes-base.httpRequest', position: [0, 0], parameters: {}, onError: 'continueErrorOutput' },
+          { id: '2', name: 'Success', type: 'n8n-nodes-base.set', position: [200, 0], parameters: {} },
+          { id: '3', name: 'Handle Error', type: 'n8n-nodes-base.set', position: [200, 100], parameters: {} },
+        ],
+        connections: { 'Source': { main: [[{ node: 'Success', type: 'main', index: 0 }, { node: 'Handle Error', type: 'main', index: 0 }]] } },
+      } as any, { profile: 'minimal' });
+      expect(result.warnings.some(w => w.message.includes('named like an error handler'))).toBe(false);
     });
   });
 
@@ -793,6 +897,33 @@ describe('WorkflowValidator', () => {
         const result = await validator.validateWorkflow({ nodes: [{ id: '1', name: 'Test', type: 'n8n-nodes-base.httpRequest', position: [0, 0], parameters: {}, onError: val }, { id: '2', name: 'Next', type: 'n8n-nodes-base.set', position: [200, 0], parameters: {} }], connections: { 'Test': { main: [[{ node: 'Next', type: 'main', index: 0 }]] } } } as any);
         expect(result.errors.some(e => e.message.includes('but no error output connections'))).toBe(false);
       }
+    });
+
+    // A conditional node's error output sits after its RULE outputs, not after a flat "main"
+    // count - getConditionalOutputInfo supplies that count, and fallbackOutput: 'extra' shifts
+    // it by one more.
+    it('places a 2-rule Switch error output at main[2], or main[3] with fallbackOutput extra', async () => {
+      const switchNode = (options?: Record<string, any>) => ({
+        id: '1', name: 'Switch', type: 'n8n-nodes-base.switch', typeVersion: 3.2, position: [0, 0],
+        onError: 'continueErrorOutput',
+        parameters: { rules: { values: [{ outputKey: 'a' }, { outputKey: 'b' }] }, ...(options ? { options } : {}) },
+      });
+
+      const withoutFallback = await validator.validateWorkflow({
+        nodes: [switchNode(), { id: '2', name: 'Next', type: 'n8n-nodes-base.set', position: [200, 0], parameters: {} }],
+        connections: { 'Switch': { main: [[{ node: 'Next', type: 'main', index: 0 }], [], []] } },
+      } as any);
+      expect(withoutFallback.warnings.some(w =>
+        w.nodeName === 'Switch' && w.message.includes('main[2]')
+      )).toBe(true);
+
+      const withFallbackExtra = await validator.validateWorkflow({
+        nodes: [switchNode({ fallbackOutput: 'extra' }), { id: '2', name: 'Next', type: 'n8n-nodes-base.set', position: [200, 0], parameters: {} }],
+        connections: { 'Switch': { main: [[{ node: 'Next', type: 'main', index: 0 }], [], [], []] } },
+      } as any);
+      expect(withFallbackExtra.warnings.some(w =>
+        w.nodeName === 'Switch' && w.message.includes('main[3]')
+      )).toBe(true);
     });
   });
 

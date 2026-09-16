@@ -61,6 +61,98 @@ describe('EnhancedConfigValidator', () => {
     });
   });
 
+  // validate_node runs the same operator-structure checks the workflow paths run
+  // (validateWorkflowStructure / WorkflowValidator), via config['@version'] standing in for
+  // typeVersion (#1103).
+  describe('Condition operator validation (validate_node path, #1103)', () => {
+    const malformedOperators = [
+      { label: 'type without operation', operator: { type: 'string' } },
+      { label: 'operation without type', operator: { operation: 'equals' } },
+      { label: 'type that is an operation name, not a data type', operator: { type: 'equals', operation: 'equals' } },
+      { label: 'a string', operator: 'equals' },
+      { label: 'null', operator: null },
+    ];
+
+    const conditionsConfig = (operator: unknown, version?: number) => ({
+      ...(version !== undefined ? { '@version': version } : {}),
+      conditions: { conditions: [{ id: '1', leftValue: 'x', operator, rightValue: 'y' }] },
+    });
+    const conditionsProperties = [{ name: 'conditions', type: 'filter', required: true }];
+
+    describe('nodes-base.if (typeVersion 2.2)', () => {
+      it.each(malformedOperators)('reports a malformed operator ($label) as an error on conditions', ({ operator }) => {
+        const result = EnhancedConfigValidator.validateWithMode('nodes-base.if', conditionsConfig(operator, 2.2), conditionsProperties, 'operation', 'ai-friendly');
+        expect(result.errors.some(e => e.type === 'invalid_value' && e.property === 'conditions')).toBe(true);
+      });
+
+      it('reports no operator error for a well-formed operator', () => {
+        const result = EnhancedConfigValidator.validateWithMode('nodes-base.if', conditionsConfig({ type: 'string', operation: 'equals' }, 2.2), conditionsProperties, 'operation', 'ai-friendly');
+        expect(result.errors.some(e => e.type === 'invalid_value' && e.property === 'conditions')).toBe(false);
+      });
+
+      it('does not run the check without @version (defaults to typeVersion 1)', () => {
+        const result = EnhancedConfigValidator.validateWithMode('nodes-base.if', conditionsConfig({ type: 'string' }), conditionsProperties, 'operation', 'ai-friendly');
+        expect(result.errors.some(e => e.type === 'invalid_value' && e.property === 'conditions')).toBe(false);
+      });
+    });
+
+    describe('nodes-base.filter (typeVersion 2)', () => {
+      it.each(malformedOperators)('reports a malformed operator ($label) as an error on conditions', ({ operator }) => {
+        const result = EnhancedConfigValidator.validateWithMode('nodes-base.filter', conditionsConfig(operator, 2), conditionsProperties, 'operation', 'ai-friendly');
+        expect(result.errors.some(e => e.type === 'invalid_value' && e.property === 'conditions')).toBe(true);
+      });
+
+      it('reports no operator error for a well-formed operator', () => {
+        const result = EnhancedConfigValidator.validateWithMode('nodes-base.filter', conditionsConfig({ type: 'string', operation: 'equals' }, 2), conditionsProperties, 'operation', 'ai-friendly');
+        expect(result.errors.some(e => e.type === 'invalid_value' && e.property === 'conditions')).toBe(false);
+      });
+    });
+
+    describe('nodes-base.switch (typeVersion 3.2, rules mode)', () => {
+      const switchConfig = (operator: unknown, mode: string = 'rules') => ({
+        '@version': 3.2,
+        mode,
+        rules: { values: [{ outputKey: 'a', conditions: { conditions: [{ id: '1', leftValue: 'x', operator, rightValue: 'y' }] } }] },
+      });
+      const switchProperties = [{ name: 'rules', type: 'fixedCollection', required: false }];
+
+      it.each(malformedOperators)('reports a malformed operator ($label) as an error on rules', ({ operator }) => {
+        const result = EnhancedConfigValidator.validateWithMode('nodes-base.switch', switchConfig(operator), switchProperties, 'operation', 'ai-friendly');
+        expect(result.errors.some(e => e.type === 'invalid_value' && e.property === 'rules')).toBe(true);
+      });
+
+      it('reports no operator error for a well-formed operator', () => {
+        const result = EnhancedConfigValidator.validateWithMode('nodes-base.switch', switchConfig({ type: 'string', operation: 'equals' }), switchProperties, 'operation', 'ai-friendly');
+        expect(result.errors.some(e => e.type === 'invalid_value' && e.property === 'rules')).toBe(false);
+      });
+
+      it('skips an expression-mode Switch', () => {
+        const result = EnhancedConfigValidator.validateWithMode('nodes-base.switch', switchConfig({ type: 'string' }, 'expression'), switchProperties, 'operation', 'ai-friendly');
+        expect(result.errors.some(e => e.type === 'invalid_value' && e.property === 'rules')).toBe(false);
+      });
+
+      // The `fix` hint is operator-repair advice, so it's only attached when the underlying
+      // message is actually about an operator - a malformed rules collection needs a different
+      // fix (make it an array), which this generic hint would misdescribe.
+      it('attaches a fix hint to a malformed operator error', () => {
+        const result = EnhancedConfigValidator.validateWithMode('nodes-base.switch', switchConfig({ type: 'string' }), switchProperties, 'operation', 'ai-friendly');
+        const error = result.errors.find(e => e.type === 'invalid_value' && e.property === 'rules');
+        expect(error).toBeDefined();
+        expect(error!.message).toContain('operator');
+        expect(error!.fix).toBeDefined();
+      });
+
+      it('does not attach a fix hint when rules.values itself is malformed (not an array)', () => {
+        const config = { '@version': 3.2, mode: 'rules', rules: { values: 'abc' } };
+        const result = EnhancedConfigValidator.validateWithMode('nodes-base.switch', config, switchProperties, 'operation', 'ai-friendly');
+        const error = result.errors.find(e => e.type === 'invalid_value' && e.property === 'rules');
+        expect(error).toBeDefined();
+        expect(error!.message).not.toContain('operator');
+        expect(error!.fix).toBeUndefined();
+      });
+    });
+  });
+
   describe('validateWithMode', () => {
     it('should validate config with operation awareness', () => {
       const nodeType = 'nodes-base.slack';
