@@ -192,6 +192,11 @@ export function findJmespathCalls(source: string): JmespathCall[] {
   while (calls.length < MAX_CALLS) {
     const index = blanked.indexOf(marker, from);
     if (index === -1) break;
+    // `foo$jmespath(` and `obj.$jmespath(` are not n8n's helper.
+    if (index > 0 && /[\w$.]/.test(blanked[index - 1])) {
+      from = index + marker.length;
+      continue;
+    }
     // JavaScript allows whitespace between the callee and its `(`.
     let paren = index + marker.length;
     while (paren < blanked.length && /\s/.test(blanked[paren])) paren++;
@@ -206,8 +211,8 @@ export function findJmespathCalls(source: string): JmespathCall[] {
     // Resume inside the call so nested calls are read too; MAX_CALLS bounds the rescans.
     from = argsStart;
 
-    const first = literalArgument(source, args.spans[0]);
-    const second = literalArgument(source, args.spans[1]);
+    const first = literalArgument(source, blanked, args.spans[0]);
+    const second = literalArgument(source, blanked, args.spans[1]);
     if (first !== undefined) {
       calls.push({ index, query: first, queryIsFirstArgument: true });
     } else {
@@ -221,30 +226,34 @@ export function findJmespathCalls(source: string): JmespathCall[] {
  * The literal's text when the span holds exactly one plain string literal, with JavaScript
  * escapes decoded (`\u0027` is a quote to the query, not to the validator).
  */
-function literalArgument(source: string, span: [number, number] | undefined): string | undefined {
+function literalArgument(source: string, blanked: string, span: [number, number] | undefined): string | undefined {
   if (!span) return undefined;
-  const raw = source.slice(span[0], span[1]).trim();
-  const quote = raw[0];
-  if (!(quote === "'" || quote === '"' || quote === '`') || raw.length < 2) return undefined;
+  // Comments are already spaces in the blanked text, so the literal is the only non-space run.
+  const blankedArg = blanked.slice(span[0], span[1]);
+  const start = span[0] + (blankedArg.length - blankedArg.trimStart().length);
+  const quote = source[start];
+  if (!(quote === "'" || quote === '"' || quote === '`') || start >= span[1] - 1) return undefined;
 
   let body = '';
-  let i = 1;
-  while (i < raw.length) {
-    const ch = raw[i];
+  let i = start + 1;
+  while (i < span[1]) {
+    const ch = source[i];
     if (ch === '\\') {
-      const decoded = decodeEscape(raw, i);
+      const decoded = decodeEscape(source, i);
       if (!decoded) return undefined;
       body += decoded.text;
       i = decoded.next;
       continue;
     }
     if (ch === quote) break;
-    if (quote === '`' && ch === '$' && raw[i + 1] === '{') return undefined; // interpolated: dynamic
+    if (quote === '`' && ch === '$' && source[i + 1] === '{') return undefined; // interpolated: dynamic
     body += ch;
     i++;
   }
-  // The closing quote must end the argument; anything after it is an operator or a second literal.
-  if (i !== raw.length - 1 || raw[i] !== quote) return undefined;
+  if (i >= span[1] || source[i] !== quote) return undefined;
+  // Only comments (blanked) or whitespace may follow the closing quote; anything else is an
+  // operator or a second literal.
+  if (blanked.slice(i + 1, span[1]).trim() !== '') return undefined;
   return body;
 }
 
@@ -367,10 +376,13 @@ export function checkJmespathQuery(query: string): JmespathQueryFinding[] {
   while ((match = quotedRhs.exec(code)) !== null) {
     const bodyStart = match.index + match[0].length - 1 - match[2].length;
     const text = query.slice(bodyStart, bodyStart + match[2].length);
+    // A raw string is single-quoted; when the text holds a quote or a backslash, a JSON
+    // literal in backticks is the form that needs no escaping rules of its own.
+    const literal = /['\\]/.test(text) ? `\`${JSON.stringify(text)}\`` : `'${text}'`;
     add({
       severity: 'warning',
-      message: `JMESPath treats "${text}" as an identifier, not a string; the comparison matches nothing`,
-      fix: `Use single quotes for a raw string: ${match[1]} '${text.replace(/'/g, "\\'")}'`
+      message: `JMESPath treats "${text}" as an identifier, so this compares against the field named ${text} rather than the string; that usually matches nothing`,
+      fix: `Use a string literal: ${match[1]} ${literal}`
     });
   }
 

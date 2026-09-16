@@ -349,7 +349,7 @@ describe('ExpressionValidator', () => {
       const result = validate(`={{ $jmespath($json, 'customers[?country=="PL"].name') }}`);
       expect(result.errors).toEqual([]);
       expect(result.warnings).toEqual([
-        `value: JMESPath treats "PL" as an identifier, not a string; the comparison matches nothing. Use single quotes for a raw string: == 'PL'`,
+        `value: JMESPath treats "PL" as an identifier, so this compares against the field named PL rather than the string; that usually matches nothing. Use a string literal: == 'PL'`,
       ]);
     });
 

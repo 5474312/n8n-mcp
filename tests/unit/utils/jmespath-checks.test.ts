@@ -74,6 +74,12 @@ describe('findJmespathCalls', () => {
     expect(findJmespathCalls('$jmespath($json, "a" + "b")')[0].query).toBeUndefined();
   });
 
+  it('reads a literal surrounded by comments and ignores a call on another identifier', () => {
+    expect(findJmespathCalls('$jmespath($json, /* query */ "[?age > 1]" // why\n)')[0].query).toBe('[?age > 1]');
+    expect(findJmespathCalls('foo$jmespath($json, "a")')).toEqual([]);
+    expect(findJmespathCalls('obj.$jmespath($json, "a")')).toEqual([]);
+  });
+
   it('allows whitespace between the callee and its paren', () => {
     expect(findJmespathCalls('$jmespath ($json, "a")')[0].query).toBe('a');
     expect(findJmespathCalls('$jmespathX($json, "a")')).toEqual([]);
@@ -159,12 +165,14 @@ describe('checkJmespathQuery', () => {
 
   it('warns on a double-quoted right-hand side', () => {
     expect(messages('customers[?country=="PL"].name')).toEqual([
-      'warning: JMESPath treats "PL" as an identifier, not a string; the comparison matches nothing',
+      'warning: JMESPath treats "PL" as an identifier, so this compares against the field named PL rather than the string; that usually matches nothing',
     ]);
   });
 
-  it('escapes an apostrophe in the suggested raw string', () => {
-    expect(checkJmespathQuery(`[?name == "O'Reilly"]`)[0].fix).toBe(`Use single quotes for a raw string: == 'O\\'Reilly'`);
+  it('suggests a JSON literal when the text holds a quote or backslash', () => {
+    expect(checkJmespathQuery(`[?name == "O'Reilly"]`)[0].fix).toBe('Use a string literal: == `"O\'Reilly"`');
+    expect(checkJmespathQuery('[?name == "a\\b"]')[0].fix).toBe('Use a string literal: == `"a\\\\b"`');
+    expect(checkJmespathQuery('[?country == "PL"]')[0].fix).toBe("Use a string literal: == 'PL'");
   });
 
   it('ignores a query longer than the scan limit', () => {
