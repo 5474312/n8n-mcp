@@ -5,6 +5,7 @@
  * Each validator understands the specific requirements and patterns of its node.
  */
 
+import { checkJmespathQuery, findJmespathCalls } from '../utils/jmespath-checks';
 import { ValidationError, ValidationWarning } from './config-validator';
 
 /**
@@ -1977,16 +1978,6 @@ export class NodeSpecificValidators {
         });
       }
       
-      // Check for wrong JMESPath parameter order
-      if (code.includes('$jmespath(') && /\$jmespath\s*\(\s*['"`]/.test(code)) {
-        warnings.push({
-          type: 'invalid_value',
-          property: 'jsCode',
-          message: 'Code node $jmespath has reversed parameter order: $jmespath(data, query)',
-          suggestion: 'Use: $jmespath(dataObject, "query.path") not $jmespath("query.path", dataObject)'
-        });
-      }
-      
       // Check for webhook data access patterns
       if (code.includes('items[0].json') && !code.includes('.json.body')) {
         // Check if previous node reference suggests webhook
@@ -2010,33 +2001,33 @@ export class NodeSpecificValidators {
       }
     }
     
-    // Check for JMESPath filters with unquoted numeric literals (both JS and Python).
-    // Length guard: this scans the full Code-node body, which is bounded.
-    // Prevents CodeQL polynomial-ReDoS on crafted input with many unmatched
-    // `[` / `]` brackets around the filter pattern.
-    const jmespathFunction = language === 'javaScript' ? '$jmespath' : '_jmespath';
-    if (code.length <= MAX_CODE_LENGTH && code.includes(jmespathFunction + '(')) {
-      // Look for filter expressions with comparison operators and numbers
-      const filterPattern = /\[?\?[^[\]]*(?:>=?|<=?|==|!=)\s*(\d+(?:\.\d+)?)\s*\]/g;
-      let match;
-
-      while ((match = filterPattern.exec(code)) !== null) {
-        const number = match[1];
-        // Check if the number is NOT wrapped in backticks
-        const beforeNumber = code.substring(match.index, match.index + match[0].indexOf(number));
-        const afterNumber = code.substring(match.index + match[0].indexOf(number) + number.length);
-        
-        if (!beforeNumber.includes('`') || !afterNumber.startsWith('`')) {
-          errors.push({
+    // JMESPath queries passed as string literals get the same static checks as `$jmespath()`
+    // inside `{{ }}` expressions (src/utils/jmespath-checks.ts); calls inside strings or comments
+    // are not read, and a query held in a variable is not followed. Reversed arguments stay a
+    // warning here: a Code node surfaces the runtime failure, unlike an expression, which
+    // resolves to null. Python has no `_jmespath` on n8n 2.x; the Python rules report it as a
+    // removed global.
+    if (language === 'javaScript' && code.length <= MAX_CODE_LENGTH && code.includes('$jmespath(')) {
+      for (const call of findJmespathCalls(code)) {
+        if (call.queryIsFirstArgument) {
+          warnings.push({
             type: 'invalid_value',
-            property: language === 'python' ? 'pythonCode' : 'jsCode',
-            message: `JMESPath numeric literal ${number} must be wrapped in backticks`,
-            fix: `Change [?field >= ${number}] to [?field >= \`${number}\`]`
+            property: 'jsCode',
+            message: 'Code node $jmespath has reversed parameter order: $jmespath(data, query)',
+            suggestion: 'Use: $jmespath(dataObject, "query.path") not $jmespath("query.path", dataObject)'
           });
+          continue;
+        }
+        if (call.query === undefined) continue;
+        for (const finding of checkJmespathQuery(call.query)) {
+          if (finding.severity === 'error') {
+            errors.push({ type: 'invalid_value', property: 'jsCode', message: finding.message, fix: finding.fix });
+          } else {
+            warnings.push({ type: 'invalid_value', property: 'jsCode', message: finding.message, suggestion: finding.fix });
+          }
         }
       }
-      
-      // Also provide a general suggestion if JMESPath is used
+
       suggestions.push(
         'JMESPath in n8n requires backticks around numeric literals in filters: [?age >= `18`]'
       );

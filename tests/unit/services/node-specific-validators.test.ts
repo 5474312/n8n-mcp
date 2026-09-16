@@ -2560,8 +2560,8 @@ return [{"json": {"result": result}}]
         expect(context.errors).toContainEqual({
           type: 'invalid_value',
           property: 'jsCode',
-          message: 'JMESPath numeric literal 18 must be wrapped in backticks',
-          fix: 'Change [?field >= 18] to [?field >= `18`]'
+          message: 'JMESPath literal 18 must be wrapped in backticks; n8n resolves the expression to null instead of reporting the parse error',
+          fix: 'Write >= `18`'
         });
       });
     });
