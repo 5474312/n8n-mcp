@@ -938,7 +938,7 @@ describe('WorkflowValidator - Connection Validation (#620)', () => {
       const workflow = {
         nodes: [
           { id: '1', name: 'Trigger', type: 'n8n-nodes-base.manualTrigger', position: [0, 0], parameters: {} },
-          { id: '2', name: 'MySwitch', type: 'n8n-nodes-base.switch', position: [200, 0], parameters: {} },
+          { id: '2', name: 'MySwitch', type: 'n8n-nodes-base.switch', typeVersion: 3.2, position: [200, 0], parameters: {} },
           { id: '3', name: 'TargetA', type: 'n8n-nodes-base.set', position: [400, 0], parameters: {} },
           { id: '4', name: 'TargetB', type: 'n8n-nodes-base.set', position: [400, 200], parameters: {} },
         ],
