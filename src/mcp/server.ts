@@ -3940,6 +3940,18 @@ Full documentation is being prepared. For now, use get_node_essentials for confi
     return result;
   }
   
+  /**
+   * The typeVersion the validators see for a single-node config: the caller's `@version` when
+   * it is a finite number (or numeric string), else the node's version from the database.
+   */
+  private resolveConfigVersion(requested: unknown, nodeVersion: unknown): number {
+    const numeric = typeof requested === 'number' ? requested
+      : typeof requested === 'string' && requested.trim() !== '' ? Number(requested) : NaN;
+    if (Number.isFinite(numeric)) return numeric;
+    const fallback = Number(nodeVersion);
+    return Number.isFinite(fallback) && fallback > 0 ? fallback : 1;
+  }
+
   private async validateNodeConfig(
     nodeType: string, 
     config: Record<string, any>, 
@@ -3979,10 +3991,11 @@ Full documentation is being prepared. For now, use get_node_essentials for confi
     // Get properties
     const properties = node.properties || [];
 
-    // Add @version to config for displayOptions evaluation (supports _cnd operators)
+    // Add @version to config for displayOptions evaluation (supports _cnd operators). A
+    // caller may pin a version, but only a real one; anything else keeps the node's version.
     const configWithVersion = {
-      '@version': node.version || 1,
-      ...config
+      ...config,
+      '@version': this.resolveConfigVersion(config['@version'], node.version)
     };
 
     // Use enhanced validator with operation mode by default
@@ -4237,10 +4250,11 @@ Full documentation is being prepared. For now, use get_node_essentials for confi
     // Get properties
     const properties = node.properties || [];
 
-    // Add @version to config for displayOptions evaluation (supports _cnd operators)
+    // Add @version to config for displayOptions evaluation (supports _cnd operators). A
+    // caller may pin a version, but only a real one; anything else keeps the node's version.
     const configWithVersion = {
-      '@version': node.version || 1,
-      ...(config || {})
+      ...(config || {}),
+      '@version': this.resolveConfigVersion(config?.['@version'], node.version)
     };
 
     // Find missing required fields

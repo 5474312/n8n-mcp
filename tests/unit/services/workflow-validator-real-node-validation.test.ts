@@ -55,6 +55,36 @@ describe('WorkflowValidator with the real EnhancedConfigValidator (#1094)', () =
     expect(result.errors.some(e => /conditions\.conditions\[0\]\.operator: operator is missing or not an object/.test(e.message))).toBe(true);
   });
 
+  // WorkflowValidator runs the same operator check twice: once via EnhancedConfigValidator
+  // (which reads `@version`) and once as a direct validateConditionNodeStructure call. The
+  // direct call skips any message the config validator already reported, so this still comes
+  // back exactly once rather than twice.
+  it('reports a malformed IF operator exactly once', async () => {
+    const result = await validate('n8n-nodes-base.if', 2.2, {
+      conditions: { conditions: [{ id: '1', leftValue: 'x', operator: { type: 'string' }, rightValue: 'y' }] },
+    });
+
+    const message = 'conditions.conditions[0].operator: missing required field "operation". Operation specifies the comparison type (e.g., "equals", "contains", "notEmpty")';
+    expect(result.errors.filter(e => e.message === message)).toHaveLength(1);
+  });
+
+  it('reports two distinct malformed operators on the same IF node, each exactly once', async () => {
+    const result = await validate('n8n-nodes-base.if', 2.2, {
+      conditions: {
+        conditions: [
+          { id: '1', leftValue: 'x', operator: { type: 'string' }, rightValue: 'y' },
+          { id: '2', leftValue: 'a', operator: { operation: 'equals' }, rightValue: 'b' },
+        ],
+      },
+    });
+
+    const message0 = 'conditions.conditions[0].operator: missing required field "operation". Operation specifies the comparison type (e.g., "equals", "contains", "notEmpty")';
+    const message1 = 'conditions.conditions[1].operator: missing required field "type". Must be a data type: "string", "number", "boolean", "dateTime", "array", "object", "any"';
+
+    expect(result.errors.filter(e => e.message === message0)).toHaveLength(1);
+    expect(result.errors.filter(e => e.message === message1)).toHaveLength(1);
+  });
+
   it('still validates a well-formed IF node', async () => {
     const result = await validate('n8n-nodes-base.if', 2, {
       conditions: {

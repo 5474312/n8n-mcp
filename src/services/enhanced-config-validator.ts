@@ -15,6 +15,7 @@ import { DatabaseAdapter } from '../database/database-adapter';
 import { NodeTypeNormalizer } from '../utils/node-type-normalizer';
 import { TypeStructureService } from './type-structure-service';
 import type { NodePropertyTypes } from 'n8n-workflow';
+import { validateConditionNodeStructure } from './n8n-validation';
 
 export type ValidationMode = 'full' | 'operation' | 'minimal';
 export type ValidationProfile = 'strict' | 'runtime' | 'ai-friendly' | 'minimal';
@@ -76,7 +77,18 @@ export class EnhancedConfigValidator extends ConfigValidator {
     if (!Array.isArray(properties)) {
       throw new Error(`Invalid properties: expected array, got ${typeof properties}`);
     }
-    
+
+    // `@version` is caller-supplied and reaches displayOptions comparisons (`>=`) before any
+    // other check; an object there throws "Cannot convert object to primitive value"
+    // (#1094). Only a number or numeric string is a version; anything else means version 1.
+    const rawVersion = config['@version'];
+    if (rawVersion !== undefined) {
+      const numeric = typeof rawVersion === 'number' ? rawVersion
+        : typeof rawVersion === 'string' && rawVersion.trim() !== '' ? Number(rawVersion) : NaN;
+      // Stored as a number so every version gate below compares numerically.
+      config = { ...config, '@version': Number.isFinite(numeric) ? numeric : 1 };
+    }
+
     // Extract operation context from config
     const operationContext = this.extractOperationContext(config);
 
@@ -788,7 +800,9 @@ export class EnhancedConfigValidator extends ConfigValidator {
     );
     
     if (hasFixedCollectionError) return;
-    
+
+    this.validateConditionOperators('n8n-nodes-base.switch', config, result);
+
     // Validate rules.values structure if present
     if (config.rules.values && Array.isArray(config.rules.values)) {
       config.rules.values.forEach((rule: any, index: number) => {
@@ -833,8 +847,8 @@ export class EnhancedConfigValidator extends ConfigValidator {
     );
     
     if (hasFixedCollectionError) return;
-    
-    // Add any If-node-specific validation here in the future
+
+    this.validateConditionOperators('n8n-nodes-base.if', config, result);
   }
   
   /**
@@ -852,8 +866,46 @@ export class EnhancedConfigValidator extends ConfigValidator {
     );
     
     if (hasFixedCollectionError) return;
-    
-    // Add any Filter-node-specific validation here in the future
+
+    this.validateConditionOperators('n8n-nodes-base.filter', config, result);
+  }
+
+  /**
+   * Run the operator-structure checks the workflow paths run (validateWorkflowStructure for
+   * the write tools, WorkflowValidator for validate_workflow) on a single node config, so
+   * validate_node stops passing operators those paths reject (#1103). The config carries
+   * `@version` from the validate_node handler; without it the version gates in
+   * validateConditionNodeStructure see version 1 and skip the checks.
+   */
+  private static validateConditionOperators(
+    nodeType: string,
+    config: Record<string, any>,
+    result: EnhancedValidationResult
+  ): void {
+    const rawVersion = config['@version'];
+    // Caller-supplied: an object can throw on coercion (#1094), so only a number or string counts.
+    const typeVersion = typeof rawVersion === 'number' || typeof rawVersion === 'string' ? Number(rawVersion) : NaN;
+    const messages = validateConditionNodeStructure({
+      id: 'node',
+      name: 'node',
+      type: nodeType,
+      typeVersion: Number.isFinite(typeVersion) ? typeVersion : 1,
+      parameters: config,
+      position: [0, 0]
+    });
+
+    for (const message of messages) {
+      const property = message.split(/[.[:]/, 1)[0];
+      if (result.errors.some(e => e.message === message)) continue;
+      result.errors.push({
+        type: 'invalid_value',
+        property,
+        message,
+        ...(message.includes('operator')
+          ? { fix: 'Each condition needs an operator object with "type" (string, number, boolean, dateTime, array, object, any) and "operation" (for example equals, contains, exists).' }
+          : {})
+      });
+    }
   }
 
   /**
