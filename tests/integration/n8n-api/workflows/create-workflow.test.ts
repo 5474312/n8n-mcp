@@ -6,7 +6,7 @@
  * and covers all major workflow creation scenarios.
  */
 
-import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createTestContext, TestContext, createTestWorkflowName } from '../utils/test-context';
 import { getTestN8nClient } from '../utils/n8n-client';
 import { N8nApiClient } from '../../../../src/services/n8n-api-client';
@@ -20,7 +20,6 @@ import {
   EXPRESSION_WORKFLOW,
   getFixture
 } from '../utils/fixtures';
-import { cleanupOrphanedWorkflows } from '../utils/cleanup-helpers';
 import { createMcpContext } from '../utils/mcp-context';
 import { InstanceContext } from '../../../../src/types/instance-context';
 import { handleCreateWorkflow } from '../../../../src/mcp/handlers-n8n-manager';
@@ -38,15 +37,6 @@ describe('Integration: handleCreateWorkflow', () => {
 
   afterEach(async () => {
     await context.cleanup();
-  });
-
-  // Global cleanup after all tests to catch any orphaned workflows
-  // (e.g., from test retries or failures)
-  // IMPORTANT: Skip cleanup in CI to preserve shared n8n instance workflows
-  afterAll(async () => {
-    if (!process.env.CI) {
-      await cleanupOrphanedWorkflows();
-    }
   });
 
   // ======================================================================

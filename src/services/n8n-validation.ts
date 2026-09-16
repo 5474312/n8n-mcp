@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { z } from 'zod';
 import { WorkflowNode, WorkflowConnection, Workflow } from '../types/n8n-api';
-import { isTriggerNode, isActivatableTrigger } from '../utils/node-type-utils';
+import { isActivatableTrigger } from '../utils/node-type-utils';
 import { DERIVED_SETTINGS_PROPERTIES } from '../constants/workflow-settings';
 import { isNonExecutableNode } from '../utils/node-classification';
 import {
@@ -399,7 +399,10 @@ export function validateWorkflowStructure(workflow: Partial<Workflow>): string[]
       // so that every AI connection type (ai_outputParser, ai_document, ai_textSplitter,
       // ai_agent, ai_chain, ai_retriever, etc.) is covered automatically.
       Object.entries(workflow.connections).forEach(([sourceName, connection]) => {
-        connectedNodes.add(sourceName); // Node has outgoing connection
+        // A source key counts as an outgoing connection only once it names a target. n8n keeps
+        // the key with empty branches (`main: [[]]`, `main: [null]`) after the last edge is
+        // removed, and an empty key vouching for its own node let two isolated nodes pass (#1101).
+        let hasTarget = false;
 
         // Check every connection type key present on this source node
         const connectionRecord = connection as Record<string, unknown>;
@@ -410,12 +413,15 @@ export function validateWorkflowStructure(workflow: Partial<Workflow>): string[]
                 outputs.forEach((target: { node: string }) => {
                   if (target?.node) {
                     connectedNodes.add(target.node); // Node has incoming connection
+                    hasTarget = true;
                   }
                 });
               }
             });
           }
         });
+
+        if (hasTarget) connectedNodes.add(sourceName); // Node has outgoing connection
       });
 
       // Find disconnected nodes (excluding non-executable nodes and triggers)
@@ -427,27 +433,23 @@ export function validateWorkflowStructure(workflow: Partial<Workflow>): string[]
           return false;
         }
 
-        const isConnected = connectedNodes.has(node.name);
-        const isNodeTrigger = isTriggerNode(node.type);
-
-        // Trigger nodes need outgoing connections OR inbound connections (for mcpTrigger)
-        // mcpTrigger is special: it has "trigger" in its name but only receives inbound ai_tool connections
-        if (isNodeTrigger) {
-          const hasOutgoingConnections = !!workflow.connections?.[node.name];
-          const hasInboundConnections = isConnected;
-          return !hasOutgoingConnections && !hasInboundConnections; // Disconnected if NEITHER
-        }
-
-        // Regular nodes need at least one connection (incoming or outgoing)
-        return !isConnected;
+        // Every node, trigger or not, needs one edge in either direction. mcpTrigger only
+        // receives inbound ai_tool connections, and those count like any other target.
+        return !connectedNodes.has(node.name);
       });
 
       if (disconnectedNodes.length > 0) {
         const disconnectedList = disconnectedNodes.map(n => `"${n.name}" (${n.type})`).join(', ');
         const firstDisconnected = disconnectedNodes[0];
-        const suggestedSource = workflow.nodes.find(n => connectedNodes.has(n.name))?.name || workflow.nodes[0].name;
+        // Suggest a connected executable node as the source; a sticky note is never one, and
+        // with no other executable node there is nothing to suggest.
+        const suggestedSource = workflow.nodes.find(n => connectedNodes.has(n.name) && !isNonExecutableNode(n.type))?.name
+          || workflow.nodes.find(n => n.name !== firstDisconnected.name && !isNonExecutableNode(n.type))?.name;
+        const hint = suggestedSource
+          ? ` Add a connection: {type: 'addConnection', source: '${suggestedSource}', target: '${firstDisconnected.name}', sourcePort: 'main', targetPort: 'main'}`
+          : '';
 
-        errors.push(`Disconnected nodes detected: ${disconnectedList}. Each node must have at least one connection. Add a connection: {type: 'addConnection', source: '${suggestedSource}', target: '${firstDisconnected.name}', sourcePort: 'main', targetPort: 'main'}`);
+        errors.push(`Disconnected nodes detected: ${disconnectedList}. Each node must have at least one connection.${hint}`);
       }
     }
   }
@@ -490,53 +492,56 @@ export function validateWorkflowStructure(workflow: Partial<Workflow>): string[]
 
   // Validate Switch and IF node connection structures match their rules
   if (workflow.nodes && workflow.connections) {
-    const switchNodes = workflow.nodes.filter(isRulesModeSwitch);
+    // Switch v1 has four fixed outputs whatever its rules say; from v2 on the outputs follow
+    // the rules, so only those versions can be checked against them.
+    const switchNodes = workflow.nodes.filter(node => isRulesModeSwitch(node) && (node.typeVersion || 1) >= 2);
 
     const ruleLabel = (rule: any, i: number) =>
       typeof rule?.outputKey === 'string' ? `"${rule.outputKey}" (index ${i})` : `Rule ${i}`;
 
     for (const switchNode of switchNodes) {
       const params = switchNode.parameters as any;
-      // Caller-supplied: a string or an object with a `length` reaches the branch-count read
-      // below and then has no `.map` (#1094). Only an array describes rules.
-      const rules = Array.isArray(params?.rules?.rules) ? params.rules.rules : [];
+      // n8n stores the rules under `rules.values` from typeVersion 3.2 on; `rules.rules` is the
+      // legacy key. Reading only the legacy key meant this check never ran on a current Switch
+      // (#1100). Caller-supplied: a string or an object with a `length` reaches the branch-count
+      // read below and then has no `.map` (#1094). Only an array describes rules.
+      const ruleCollection = params?.rules?.values ?? params?.rules?.rules;
+      const rules = Array.isArray(ruleCollection) ? ruleCollection : [];
       const nodeConnections = workflow.connections[switchNode.name];
 
-      if (rules.length > 0 && nodeConnections?.main) {
+      // An empty rule collection is a valid Switch (its fallback output may be the only one),
+      // so the check keys on the collection being an array, not on it holding rules.
+      if (Array.isArray(ruleCollection) && nodeConnections?.main) {
         const outputBranches = nodeConnections.main.length;
 
-        // Switch nodes in "rules" mode need output branches matching rules count
-        if (outputBranches !== rules.length) {
+        // `fallbackOutput: 'extra'` adds one output after the rule outputs. 'none' (the
+        // default) or an output index routes unmatched items to an existing output and adds
+        // nothing. Only the extra output can carry a connection of its own.
+        const fallbackOutput = params?.options?.fallbackOutput ?? params?.fallbackOutput;
+        const fallbackOutputs = fallbackOutput === 'extra' ? 1 : 0;
+        // `onError: continueErrorOutput` appends an error output after the natural ones.
+        const errorOutputs = switchNode.onError === 'continueErrorOutput' ? 1 : 0;
+        const outputCount = rules.length + fallbackOutputs + errorOutputs;
+
+        // n8n omits trailing branches that have no connection, so fewer branches than rules is
+        // how it exports a Switch whose last rules route nowhere. More branches than the node
+        // has outputs can only come from a caller.
+        if (outputBranches > outputCount) {
           const ruleNames = rules.map(ruleLabel).join(', ');
 
           errors.push(
-            `Switch node "${switchNode.name}" has ${rules.length} rules [${ruleNames}] ` +
-            `but only ${outputBranches} output branch${outputBranches !== 1 ? 'es' : ''} in connections. ` +
-            `Each rule needs its own output branch. When connecting to Switch outputs, specify sourceIndex: ` +
-            rules.map((_: any, i: number) => i).join(', ') +
-            ` (or use case parameter for clarity).`
+            `Switch node "${switchNode.name}" has ${rules.length} rules [${ruleNames}]` +
+            (fallbackOutputs ? ' plus a fallback output' : '') +
+            (errorOutputs ? ' plus an error output' : '') +
+            ` but ${outputBranches} output branches in connections. ` +
+            (outputCount > 0
+              ? `Outputs are indexed 0 to ${outputCount - 1}; remove the extra branches or add rules for them.`
+              : 'The Switch has no outputs; add rules or a fallback output before connecting branches.')
           );
         }
 
-        // Check for empty output branches (except trailing ones)
-        // A null branch now survives the schema above (#1096), so it counts as unconnected
-        // rather than reaching `.length` on null.
-        const branchSize = (branch: unknown) => (Array.isArray(branch) ? branch.length : 0);
-        const nonEmptyBranches = nodeConnections.main.filter((branch: unknown) => branchSize(branch) > 0).length;
-        if (nonEmptyBranches < rules.length) {
-          const emptyIndices = nodeConnections.main
-            .map((branch: unknown, i: number) => branchSize(branch) === 0 ? i : -1)
-            .filter((i: number) => i !== -1 && i < rules.length);
-
-          if (emptyIndices.length > 0) {
-            const ruleInfo = emptyIndices.map((i: number) => ruleLabel(rules[i], i)).join(', ');
-
-            errors.push(
-              `Switch node "${switchNode.name}" has unconnected output${emptyIndices.length !== 1 ? 's' : ''}: ${ruleInfo}. ` +
-              `Add connection${emptyIndices.length !== 1 ? 's' : ''} using sourceIndex: ${emptyIndices.join(' or ')}.`
-            );
-          }
-        }
+        // An output with no connection is not reported: n8n routes matched items into nothing,
+        // and 13 of the bundled templates rely on that for a rule they do not act on.
       }
     }
   }
@@ -607,7 +612,8 @@ export function validateConditionNodeStructure(node: WorkflowNode): string[] {
   // conditions.options and all its sub-fields (version, leftValue,
   // caseSensitive, typeValidation) are optional in n8n — the runtime applies
   // defaults — so only the operator structure is validated here.
-  if (node.type === 'n8n-nodes-base.if') {
+  if (node.type === 'n8n-nodes-base.if' || node.type === 'n8n-nodes-base.filter') {
+    // IF v2+ and Filter v2+ share the filter parameter shape.
     if (typeVersion >= 2) {
       errors.push(...validateFilterConditionOperators(node.parameters?.conditions, 'conditions'));
     }
