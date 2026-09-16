@@ -11,8 +11,9 @@
  * from a previous crashed run - without ever competing with a live test.
  *
  * Only registered in vitest.config.integration.ts, not the base
- * vitest.config.ts - a plain `npm test` unit-only run must never touch the
- * live n8n instance.
+ * vitest.config.ts - a plain `npm test` still runs the integration files when
+ * credentials are configured, but a run selected down to unit files must not
+ * start an instance-wide deletion.
  *
  * globalSetup runs once, outside any test's module context, so this file
  * must not import anything that calls `vi`, `beforeAll`, etc. at module

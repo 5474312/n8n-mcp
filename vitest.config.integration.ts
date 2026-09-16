@@ -8,7 +8,7 @@ export default mergeConfig(
       // setupFiles comes from the base config; mergeConfig concatenates the
       // array, so repeating it here registered every hook twice per file.
       // Runs once before the integration suite (not per test file, and not
-      // on a plain `npm test` unit-only run - the base config intentionally
+      // on a plain `npm test`, which may be selected down to unit files - the base config intentionally
       // omits this) to sweep orphaned n8n integration-test workflows without
       // racing running tests. See tests/setup/integration-global-setup.ts
       // and issue #1102.
