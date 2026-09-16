@@ -182,13 +182,20 @@ function blankRegexLiteral(source: string, out: string[], start: number): number
 export function findJmespathCalls(source: string): JmespathCall[] {
   const calls: JmespathCall[] = [];
   const blanked = blankStringLiterals(source, { comments: true });
-  const marker = '$jmespath(';
+  const marker = '$jmespath';
   let from = 0;
 
   while (calls.length < MAX_CALLS) {
     const index = blanked.indexOf(marker, from);
     if (index === -1) break;
-    const argsStart = index + marker.length;
+    // JavaScript allows whitespace between the callee and its `(`.
+    let paren = index + marker.length;
+    while (paren < blanked.length && /\s/.test(blanked[paren])) paren++;
+    if (blanked[paren] !== '(') {
+      from = index + marker.length;
+      continue;
+    }
+    const argsStart = paren + 1;
     const args = splitTopLevelArguments(blanked, argsStart);
     // Nothing after an unclosed `(` can close a later call either.
     if (!args) break;
@@ -310,7 +317,7 @@ export function checkJmespathQuery(query: string): JmespathQueryFinding[] {
   let match: RegExpExecArray | null;
 
   // Numbers are backtick literals in JMESPath (`18`); a bare number is a parse error.
-  const bareNumber = /(==|!=|<=|>=|<|>)\s*(\d+(?:\.\d+)?)(?![\w.`'"])/g;
+  const bareNumber = /(==|!=|<=|>=|<|>)\s*(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?![\w.`'"])/g;
   while ((match = bareNumber.exec(code)) !== null) {
     add({
       severity: 'error',
@@ -321,7 +328,7 @@ export function checkJmespathQuery(query: string): JmespathQueryFinding[] {
 
   // A bare true/false/null parses as an identifier (a field named "true"), so the comparison
   // is against a missing field rather than the boolean.
-  const bareKeyword = /(==|!=)\s*(true|false|null)(?![\w.`'"])/g;
+  const bareKeyword = /(==|!=|<=|>=|<|>)\s*(true|false|null)(?![\w.`'"])/g;
   while ((match = bareKeyword.exec(code)) !== null) {
     add({
       severity: 'warning',

@@ -70,6 +70,11 @@ describe('findJmespathCalls', () => {
     expect(findJmespathCalls('$jmespath($json, "a" + "b")')[0].query).toBeUndefined();
   });
 
+  it('allows whitespace between the callee and its paren', () => {
+    expect(findJmespathCalls('$jmespath ($json, "a")')[0].query).toBe('a');
+    expect(findJmespathCalls('$jmespathX($json, "a")')).toEqual([]);
+  });
+
   it('reads nested calls', () => {
     const calls = findJmespathCalls('$jmespath($jmespath($json, "[?age > 18]"), "[].name")');
     expect(calls.map(c => c.query)).toEqual(['[].name', '[?age > 18]']);
@@ -113,11 +118,14 @@ describe('checkJmespathQuery', () => {
       'error: JMESPath literal 100000 must be wrapped in backticks; n8n resolves the expression to null instead of reporting the parse error',
     ]);
     expect(messages('[?score >= 1.5]')[0]).toContain('literal 1.5');
+    expect(messages('[?delta > -18]')[0]).toContain('literal -18');
+    expect(messages('[?n == 1e3]')[0]).toContain('literal 1e3');
   });
 
   it('warns on a bare true, false or null, which JMESPath reads as a field name', () => {
     expect(messages('[?active == true]')).toEqual(['warning: JMESPath reads true as a field name, not the literal; wrap it in backticks']);
     expect(messages('[?x != null]')[0]).toContain('reads null as a field name');
+    expect(messages('[?score > true]')[0]).toContain('reads true as a field name');
     expect(checkJmespathQuery('[?active == `true`]')).toEqual([]);
   });
 
