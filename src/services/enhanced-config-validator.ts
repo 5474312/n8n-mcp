@@ -77,7 +77,15 @@ export class EnhancedConfigValidator extends ConfigValidator {
     if (!Array.isArray(properties)) {
       throw new Error(`Invalid properties: expected array, got ${typeof properties}`);
     }
-    
+
+    // `@version` is caller-supplied and reaches displayOptions comparisons (`>=`) before any
+    // other check; an object there throws "Cannot convert object to primitive value"
+    // (#1094). Only a number or numeric string is a version; anything else means version 1.
+    const rawVersion = config['@version'];
+    if (rawVersion !== undefined && !(typeof rawVersion === 'number' || (typeof rawVersion === 'string' && rawVersion.trim() !== '' && Number.isFinite(Number(rawVersion))))) {
+      config = { ...config, '@version': 1 };
+    }
+
     // Extract operation context from config
     const operationContext = this.extractOperationContext(config);
 

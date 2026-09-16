@@ -142,6 +142,14 @@ describe('EnhancedConfigValidator', () => {
         expect(error!.fix).toBeDefined();
       });
 
+      it('treats a non-primitive @version as version 1 instead of throwing (#1094)', () => {
+        const config = { '@version': { toString: null, valueOf: null }, mode: 'rules', rules: { values: [{ conditions: { conditions: [{ operator: { type: 'string' } }] } }] } };
+        expect(() => EnhancedConfigValidator.validateWithMode('nodes-base.switch', config as any, switchProperties, 'operation', 'ai-friendly')).not.toThrow();
+        const result = EnhancedConfigValidator.validateWithMode('nodes-base.switch', config as any, switchProperties, 'operation', 'ai-friendly');
+        // Version 1 is below the Switch operator gate, so the operator check is skipped.
+        expect(result.errors.some(e => e.property === 'rules' && e.message.includes('operator'))).toBe(false);
+      });
+
       it('does not attach a fix hint when rules.values itself is malformed (not an array)', () => {
         const config = { '@version': 3.2, mode: 'rules', rules: { values: 'abc' } };
         const result = EnhancedConfigValidator.validateWithMode('nodes-base.switch', config, switchProperties, 'operation', 'ai-friendly');
