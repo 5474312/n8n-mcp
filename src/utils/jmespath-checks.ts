@@ -44,7 +44,7 @@ const MAX_TEMPLATE_DEPTH = 64;
  * `}` are read as division: in an expression an object literal or a call result before `/`
  * is far more common than a regex after a block.
  */
-const REGEX_PRECEDERS = new Set(['(', ',', '=', ':', '[', '!', '&', '|', '?', '{', ';', '+', '-', '*', '%', '<', '>', '~', '^']);
+const REGEX_PRECEDERS = new Set(['(', ',', '=', ':', '[', '!', '&', '|', '?', '{', ';', '+', '-', '*', '/', '%', '<', '>', '~', '^']);
 
 /** Keywords after which a `/` starts a regex literal. */
 const REGEX_KEYWORDS = new Set(['return', 'typeof', 'case', 'do', 'else', 'in', 'of', 'new', 'delete', 'void', 'throw', 'instanceof', 'yield', 'await']);
@@ -132,7 +132,8 @@ export function blankStringLiterals(source: string, options: { comments?: boolea
       while (i < end) out[i++] = ' ';
       continue;
     }
-    if (ch === '/' && (lastCode === '' || REGEX_PRECEDERS.has(lastCode) || REGEX_KEYWORDS.has(lastWord))) {
+    // A regex literal cannot be empty or start with `*`, so `//` and `/*` are never one.
+    if (ch === '/' && source[i + 1] !== '/' && source[i + 1] !== '*' && (lastCode === '' || REGEX_PRECEDERS.has(lastCode) || REGEX_KEYWORDS.has(lastWord))) {
       i = blankRegexLiteral(source, out, i);
       lastCode = '/';
       lastWord = '';
@@ -334,8 +335,9 @@ export function checkJmespathQuery(query: string): JmespathQueryFinding[] {
   if (query.length > MAX_QUERY_LENGTH) return findings;
   const seen = new Set<string>();
   const add = (finding: JmespathQueryFinding) => {
-    if (!seen.has(finding.message)) {
-      seen.add(finding.message);
+    const key = `${finding.message}\n${finding.fix}`;
+    if (!seen.has(key)) {
+      seen.add(key);
       findings.push(finding);
     }
   };
@@ -394,7 +396,7 @@ export function checkJmespathQuery(query: string): JmespathQueryFinding[] {
     const text = query.slice(bodyStart, bodyStart + match[2].length);
     // A raw string is single-quoted; when the text holds a quote or a backslash, a JSON
     // literal in backticks is the form that needs no escaping rules of its own.
-    const literal = /['\\]/.test(text) ? `\`${JSON.stringify(text)}\`` : `'${text}'`;
+    const literal = /['\\]/.test(text) ? `\`${JSON.stringify(text).replace(/`/g, '\\`')}\`` : `'${text}'`;
     add({
       severity: 'warning',
       message: `JMESPath treats "${text}" as an identifier, so this compares against the field named ${text} rather than the string; that usually matches nothing`,

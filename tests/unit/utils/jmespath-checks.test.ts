@@ -19,6 +19,10 @@ describe('blankStringLiterals', () => {
     expect(blankStringLiterals(source).length).toBe(source.length);
   });
 
+  it('reads a regex that follows a division operator', () => {
+    expect(findJmespathCalls('1 / /$jmespath($json, "[?age > 1]")/.test(x)')).toEqual([]);
+  });
+
   it('reads a division after a closed string literal', () => {
     expect(findJmespathCalls('"x" / $jmespath($json, "[?age > 18]")')[0].query).toBe('[?age > 18]');
   });
@@ -149,8 +153,9 @@ describe('checkJmespathQuery', () => {
     expect(checkJmespathQuery('[?active == `true`]')).toEqual([]);
   });
 
-  it('reports each distinct mistake once', () => {
+  it('reports each distinct mistake once, keeping fixes that differ by operator', () => {
     expect(checkJmespathQuery('[?a == 1 && b == 1 && c == 2]').map(f => f.message)).toHaveLength(2);
+    expect(checkJmespathQuery('[?a == 1 && b != 1]').map(f => f.fix)).toEqual(['Write == `1`', 'Write != `1`']);
   });
 
   it('errors on and / or and on a single =', () => {
@@ -182,6 +187,7 @@ describe('checkJmespathQuery', () => {
   it('suggests a JSON literal when the text holds a quote or backslash', () => {
     expect(checkJmespathQuery(`[?name == "O'Reilly"]`)[0].fix).toBe('Use a string literal: == `"O\'Reilly"`');
     expect(checkJmespathQuery('[?name == "a\\b"]')[0].fix).toBe('Use a string literal: == `"a\\\\b"`');
+    expect(checkJmespathQuery('[?name == "a`b\'"]')[0].fix).toBe('Use a string literal: == `"a\\`b\'"`');
     expect(checkJmespathQuery('[?country == "PL"]')[0].fix).toBe("Use a string literal: == 'PL'");
   });
 
