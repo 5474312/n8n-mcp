@@ -91,7 +91,7 @@ export function extractReadmeFromTarball(
 /** The file name of an entry that sits directly in the tarball's top-level directory, or null. */
 function rootFileName(path: string): string | null {
   const parts = path.replace(/^\.\//, '').split('/');
-  return parts.length === 2 && parts[0] ? parts[1] : null;
+  return parts.length === 2 && parts[0] && parts[0] !== '.' && parts[0] !== '..' ? parts[1] : null;
 }
 
 function entryPath(header: Buffer): string {

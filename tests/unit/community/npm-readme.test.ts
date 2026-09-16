@@ -40,6 +40,16 @@ describe('extractReadmeFromTarball', () => {
     expect(extractReadmeFromTarball(archive)).toBe('# root');
   });
 
+  it('does not treat a README outside the top-level directory as the root README', () => {
+    const archive = tgz(
+      tarEntry('../README.md', '# parent'),
+      tarEntry('./../README.md', '# parent again'),
+      tarEntry('package/package.json', '{}'),
+    );
+
+    expect(extractReadmeFromTarball(archive)).toBeNull();
+  });
+
   it('accepts a root directory that is not named package', () => {
     const archive = tgz(tarEntry('n8n-nodes-test/README.md', '# custom root'));
 
