@@ -2008,7 +2008,8 @@ export class NodeSpecificValidators {
     // resolves to null. Python has no `_jmespath` on n8n 2.x; the Python rules report it as a
     // removed global.
     if (language === 'javaScript' && code.length <= MAX_CODE_LENGTH && code.includes('$jmespath')) {
-      for (const call of findJmespathCalls(code)) {
+      const calls = findJmespathCalls(code);
+      for (const call of calls) {
         if (call.queryIsFirstArgument) {
           warnings.push({
             type: 'invalid_value',
@@ -2028,9 +2029,11 @@ export class NodeSpecificValidators {
         }
       }
 
-      suggestions.push(
-        'JMESPath in n8n requires backticks around numeric literals in filters: [?age >= `18`]'
-      );
+      if (calls.length > 0) {
+        suggestions.push(
+          'JMESPath in n8n requires backticks around numeric literals in filters: [?age >= `18`]'
+        );
+      }
     }
   }
   

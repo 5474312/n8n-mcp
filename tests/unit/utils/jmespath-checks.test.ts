@@ -85,6 +85,14 @@ describe('findJmespathCalls', () => {
     expect(findJmespathCalls('$jmespathX($json, "a")')).toEqual([]);
   });
 
+  it('reads a regex at the start of a template interpolation', () => {
+    expect(findJmespathCalls('`${ /$jmespath("a", d)/.source }`')).toEqual([]);
+  });
+
+  it('flags a dynamic template literal in first position as reversed', () => {
+    expect(findJmespathCalls('$jmespath(`users.${field}`, $json)')[0]).toMatchObject({ queryIsFirstArgument: true });
+  });
+
   it('reads nested calls', () => {
     const calls = findJmespathCalls('$jmespath($jmespath($json, "[?age > 18]"), "[].name")');
     expect(calls.map(c => c.query)).toEqual(['[].name', '[?age > 18]']);

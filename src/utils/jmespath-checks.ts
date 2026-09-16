@@ -109,6 +109,8 @@ export function blankStringLiterals(source: string, options: { comments?: boolea
         lastWord = '';
       } else if (ch === '$' && source[i + 1] === '{' && templates.length < MAX_TEMPLATE_DEPTH) {
         templates[templates.length - 1] = 0;
+        lastCode = '{'; // an interpolation opens like a block, so a `/` right after is a regex
+        lastWord = '';
         i += 2;
         continue;
       } else {
@@ -213,13 +215,21 @@ export function findJmespathCalls(source: string): JmespathCall[] {
 
     const first = literalArgument(source, blanked, args.spans[0]);
     const second = literalArgument(source, blanked, args.spans[1]);
-    if (first !== undefined) {
+    if (first !== undefined || startsWithQuote(blanked, args.spans[0])) {
+      // A string in first position is reversed even when it is a dynamic template literal.
       calls.push({ index, query: first, queryIsFirstArgument: true });
     } else {
       calls.push({ index, query: second, queryIsFirstArgument: false });
     }
   }
   return calls;
+}
+
+/** True when the argument span begins with a string or template literal. */
+function startsWithQuote(blanked: string, span: [number, number] | undefined): boolean {
+  if (!span) return false;
+  const first = blanked.slice(span[0], span[1]).trimStart()[0];
+  return first === "'" || first === '"' || first === '`';
 }
 
 /**
