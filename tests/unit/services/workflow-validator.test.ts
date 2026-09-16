@@ -902,6 +902,30 @@ describe('WorkflowValidator', () => {
     // A conditional node's error output sits after its RULE outputs, not after a flat "main"
     // count - getConditionalOutputInfo supplies that count, and fallbackOutput: 'extra' shifts
     // it by one more.
+    it('describes a Switch with no outputs when a connection is out of bounds', async () => {
+      const result = await validator.validateWorkflow({
+        nodes: [
+          { id: '1', name: 'Switch', type: 'n8n-nodes-base.switch', typeVersion: 3.2, position: [0, 0], parameters: { rules: { values: [] } } },
+          { id: '2', name: 'Next', type: 'n8n-nodes-base.set', position: [200, 0], parameters: {} },
+        ],
+        connections: { 'Switch': { main: [[{ node: 'Next', type: 'main', index: 0 }]] } },
+      } as any);
+      const error = result.errors.find(e => e.message.includes('exceeds its output count'));
+      expect(error?.message).toContain('no main outputs');
+      expect(error?.message).not.toContain('0--1');
+    });
+
+    it('does not count a connection with an empty target as a connection', async () => {
+      const result = await validator.validateWorkflow({
+        nodes: [
+          { id: '1', name: 'A', type: 'n8n-nodes-base.set', position: [0, 0], parameters: {} },
+          { id: '2', name: 'B', type: 'n8n-nodes-base.set', position: [200, 0], parameters: {} },
+        ],
+        connections: { A: { main: [[{ node: '', type: 'main', index: 0 }]] } },
+      } as any);
+      expect(result.errors.some(e => e.message.includes('Multi-node workflow has no connections'))).toBe(true);
+    });
+
     it('leaves a Switch in an unknown mode without an output count', async () => {
       const result = await validator.validateWorkflow({
         nodes: [

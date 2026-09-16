@@ -556,7 +556,9 @@ export class WorkflowValidator {
       // A malformed output value counts, so its shape error speaks instead of this one.
       const hasConnections = Object.values(workflow.connections).some(outputs =>
         Object.values(outputs || {}).some(branches =>
-          !Array.isArray(branches) || branches.some(branch => !Array.isArray(branch) ? branch != null : branch.some(Boolean))
+          !Array.isArray(branches) || branches.some(branch => !Array.isArray(branch)
+            ? branch != null
+            : branch.some(target => typeof target?.node === 'string' && target.node.length > 0))
         )
       );
       
@@ -1549,7 +1551,9 @@ export class WorkflowValidator {
             nodeId: sourceNode.id,
             nodeName: sourceNode.name,
             message: `Output index ${i} on node "${sourceNode.name}" exceeds its output count (${mainOutputCount}). ` +
-              `This node has ${mainOutputCount} main output(s) (indices 0-${mainOutputCount - 1}).`,
+              (mainOutputCount > 0
+                ? `This node has ${mainOutputCount} main output(s) (indices 0-${mainOutputCount - 1}).`
+                : 'This node has no main outputs; add rules or a fallback output before connecting it.'),
             code: 'OUTPUT_INDEX_OUT_OF_BOUNDS'
           });
           result.statistics.invalidConnections++;

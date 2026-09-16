@@ -902,7 +902,7 @@ export class EnhancedConfigValidator extends ConfigValidator {
         property,
         message,
         ...(message.includes('operator')
-          ? { fix: 'Each condition needs an operator object with "type" (string, number, boolean, dateTime, array, object) and "operation" (for example equals, contains, exists).' }
+          ? { fix: 'Each condition needs an operator object with "type" (string, number, boolean, dateTime, array, object, any) and "operation" (for example equals, contains, exists).' }
           : {})
       });
     }
