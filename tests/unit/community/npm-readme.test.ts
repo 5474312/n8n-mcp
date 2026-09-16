@@ -105,6 +105,13 @@ describe('extractReadmeFromTarball', () => {
     expect(extractReadmeFromTarball(archive)).toHaveLength(64 * 1024);
   });
 
+  it('counts the README length in characters, as the registry does, not in UTF-8 bytes', () => {
+    const readme = extractReadmeFromTarball(tgz(tarEntry('package/README.md', 'ż'.repeat(70_000))));
+
+    expect(readme).toHaveLength(64 * 1024);
+    expect(Buffer.byteLength(readme!)).toBe(2 * 64 * 1024);
+  });
+
   it('returns null when the tarball has no root README', () => {
     const archive = tgz(tarEntry('package/package.json', '{}'), tarEntry('package/lib/README.md', '# nested'));
 

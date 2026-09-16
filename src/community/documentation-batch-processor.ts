@@ -203,7 +203,11 @@ export class DocumentationBatchProcessor {
       } else {
         // A stored placeholder is not a README: drop it and the summary generated from it.
         if (node.npmReadme === NPM_MISSING_README_PLACEHOLDER) {
-          this.repository.clearNodeReadme(node.nodeType);
+          try {
+            this.repository.clearNodeReadme(node.nodeType);
+          } catch (error) {
+            errors.push(`Failed to clear the README placeholder for ${node.nodeType}: ${error}`);
+          }
         }
         failed++;
       }
