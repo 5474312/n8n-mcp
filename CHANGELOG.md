@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.86.4] - 2026-09-16
+
+### Fixed
+
+- **An n8n 2.39 refusal to publish on save is reported as what it is** ([#1118](https://github.com/czlonkowski/n8n-mcp/issues/1118)). Since n8n 2.39, saving a published workflow re-publishes it, and without the `workflow:activate` API key scope or the `workflow:publish` permission n8n keeps the published version, saves the change as a draft and answers 403 with a `reason` and the draft's `versionId`. That response now maps to its own error code, `PUBLISH_FORBIDDEN`, wherever a workflow is written. `n8n_update_full_workflow` says the published version is unchanged, the change was saved as draft `draftVersionId`, and retrying with the same credentials will not publish it. `n8n_update_partial_workflow` keeps rolling back, decides whether anything persisted by content rather than by `versionId` (a name or settings change does not bump it), and reports one of: rolled back, with `supersededDraftVersionId` and `restoredDraftVersionId`; the change retained as an unpublished draft (`draftVersionId`); an incomplete restore (`observedDraftVersionId`); or a rollback that could not be confirmed (`attemptedDraftVersionId`), each pointing to `n8n_workflow_versions`. It no longer appends "workflow restored to prior state" to n8n's "saved as a draft" sentence. `n8n_autofix_workflow` passes the code through, `n8n_workflow_versions` restore says the draft holds the restored snapshot, and `n8n_test_workflow` reads the workflow back after the exposure write: when `availableInMCP` persisted on the draft the test proceeds with a warning, otherwise it fails and says whether the state was confirmed. Failure telemetry records the content that actually persisted. This has not been run against a key with narrowed scopes.
+
+### Removed
+
+- **Source-control client methods** ([#1119](https://github.com/czlonkowski/n8n-mcp/issues/1119)). `getSourceControlStatus`, `pullSourceControl` and `pushSourceControl` in `N8nApiClient`, and their types, no longer matched the n8n 2.39 Public API (`direction` query parameter, `commitMessage` and typed `fileNames`) and no tool used them; they are deleted rather than aligned. The never-set `CredentialListParams.filter` is gone too. The 2.86.0 entry's description of the partial-update behaviour on this 403, and of these endpoints as merely unused, is superseded by this entry.
 ## [2.86.3] - 2026-09-16
 
 ### Fixed

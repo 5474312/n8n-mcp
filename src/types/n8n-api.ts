@@ -275,49 +275,6 @@ export interface WorkflowImport {
   pinData?: Record<string, unknown>;
 }
 
-// Source Control Types
-export interface SourceControlStatus {
-  ahead: number;
-  behind: number;
-  conflicted: string[];
-  created: string[];
-  current: string;
-  deleted: string[];
-  detached: boolean;
-  files: Array<{
-    path: string;
-    status: string;
-  }>;
-  modified: string[];
-  notAdded: string[];
-  renamed: Array<{
-    from: string;
-    to: string;
-  }>;
-  staged: string[];
-  tracking: string;
-}
-
-export interface SourceControlPullResult {
-  conflicts: string[];
-  files: Array<{
-    path: string;
-    status: string;
-  }>;
-  mergeConflicts: boolean;
-  pullResult: 'success' | 'conflict' | 'error';
-}
-
-export interface SourceControlPushResult {
-  ahead: number;
-  conflicts: string[];
-  files: Array<{
-    path: string;
-    status: string;
-  }>;
-  pushResult: 'success' | 'conflict' | 'error';
-}
-
 // Health Check Types
 export interface HealthCheckResponse {
   status: 'ok' | 'error';
@@ -459,7 +416,6 @@ export interface TestCaseListResponse {
 export interface CredentialListParams {
   limit?: number;
   cursor?: string;
-  filter?: Record<string, unknown>;
 }
 
 export interface CredentialListResponse {

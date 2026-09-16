@@ -27,9 +27,6 @@ import {
   WebhookRequest,
   WorkflowExport,
   WorkflowImport,
-  SourceControlStatus,
-  SourceControlPullResult,
-  SourceControlPushResult,
   DataTable,
   DataTableColumn,
   DataTableListParams,
@@ -1470,41 +1467,7 @@ export class N8nApiClient {
     }
   }
 
-  // Source Control Management (Enterprise feature)
-  async getSourceControlStatus(): Promise<SourceControlStatus> {
-    try {
-      const response = await this.client.get('/source-control/status');
-      return response.data;
-    } catch (error) {
-      throw handleN8nApiError(error);
-    }
-  }
-
-  async pullSourceControl(force = false): Promise<SourceControlPullResult> {
-    try {
-      const response = await this.client.post('/source-control/pull', { force });
-      return response.data;
-    } catch (error) {
-      throw handleN8nApiError(error);
-    }
-  }
-
-  async pushSourceControl(
-    message: string,
-    fileNames?: string[]
-  ): Promise<SourceControlPushResult> {
-    try {
-      const response = await this.client.post('/source-control/push', {
-        message,
-        fileNames,
-      });
-      return response.data;
-    } catch (error) {
-      throw handleN8nApiError(error);
-    }
-  }
-
-  // Variable Management (via Source Control API)
+  // Variable Management
   async getVariables(): Promise<Variable[]> {
     try {
       const response = await this.client.get('/variables');
