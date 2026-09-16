@@ -875,17 +875,18 @@ export async function handleUpdatePartialWorkflow(
         // `rollbackPerformed: false` in its details — never persisted anything, so
         // workflowBefore remains accurate; do not key this off the presence of a
         // `rollbackPerformed` field, or those cases wrongly fall through to "unknown".
-        // For PUBLISH_FORBIDDEN: report the restored content when the rollback is
-        // confirmed (or direct) performed, the attempted content only when it's
-        // confirmed still retained, and omit workflowAfter when the outcome is
-        // unconfirmed or partial.
-        const isPublishForbidden = error instanceof N8nApiError && error.code === 'PUBLISH_FORBIDDEN';
-        const details = isPublishForbidden ? (error.details as Record<string, unknown> | undefined) : undefined;
-        const workflowAfterOverride: Record<string, unknown> = !isPublishForbidden || details?.rollbackPerformed === true
-          ? { workflowAfter: workflowBefore }
-          : details?.changeRetained === true && diffResult?.workflow
-            ? { workflowAfter: diffResult.workflow }
-            : {};
+        // For PUBLISH_FORBIDDEN, report the attempted content only when it's confirmed
+        // still retained (changeRetained). Every other outcome — rolled back, restore
+        // incomplete, or unconfirmed — falls back to workflowBefore: the best known
+        // content, even where it isn't certain (restore incomplete/unconfirmed). Always
+        // recording SOME workflowAfter matters more than precision here — MutationTracker
+        // rejects an event with none, so omitting it here dropped these failures entirely.
+        const details = error instanceof N8nApiError && error.code === 'PUBLISH_FORBIDDEN'
+          ? (error.details as Record<string, unknown> | undefined)
+          : undefined;
+        const workflowAfterOverride: Record<string, unknown> = details?.changeRetained === true && diffResult?.workflow
+          ? { workflowAfter: diffResult.workflow }
+          : { workflowAfter: workflowBefore };
         void trackWorkflowMutation({
           sessionId,
           toolName: 'n8n_update_partial_workflow',

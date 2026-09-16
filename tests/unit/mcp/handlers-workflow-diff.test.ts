@@ -1472,11 +1472,13 @@ describe('handlers-workflow-diff', () => {
       expect(result.details).not.toHaveProperty('supersededDraftVersionId');
       expect(result.details).not.toHaveProperty('restoredDraftVersionId');
       expect(result.details).not.toHaveProperty('rollbackVerifiedAfterError');
-      // Telemetry: the outcome is unconfirmed, so workflowAfter must be omitted rather
-      // than guessed.
+      // Telemetry: the outcome is unconfirmed, so workflowAfter falls back to
+      // workflowBefore (the best known content) rather than being omitted —
+      // MutationTracker rejects an event with no workflowAfter at all.
       await vi.waitFor(() => expect(telemetryMocks.trackWorkflowMutation).toHaveBeenCalled());
       const [telemetryArgs] = telemetryMocks.trackWorkflowMutation.mock.calls.at(-1)!;
-      expect(telemetryArgs).not.toHaveProperty('workflowAfter');
+      expect(telemetryArgs).toHaveProperty('workflowAfter');
+      expect(telemetryArgs.workflowAfter).toEqual(telemetryArgs.workflowBefore);
     });
 
     it('reports an incomplete restore when the verification GET matches neither the prior nor the attempted content', async () => {
@@ -1532,10 +1534,12 @@ describe('handlers-workflow-diff', () => {
       expect(result.details).not.toHaveProperty('supersededDraftVersionId');
       expect(result.details).not.toHaveProperty('restoredDraftVersionId');
       expect(result.details).not.toHaveProperty('changeRetained');
-      // Telemetry: a partial restore is neither state, so workflowAfter must be omitted.
+      // Telemetry: a partial restore is neither known state, so workflowAfter falls
+      // back to workflowBefore (the best known content) rather than being omitted.
       await vi.waitFor(() => expect(telemetryMocks.trackWorkflowMutation).toHaveBeenCalled());
       const [telemetryArgs] = telemetryMocks.trackWorkflowMutation.mock.calls.at(-1)!;
-      expect(telemetryArgs).not.toHaveProperty('workflowAfter');
+      expect(telemetryArgs).toHaveProperty('workflowAfter');
+      expect(telemetryArgs.workflowAfter).toEqual(telemetryArgs.workflowBefore);
     });
 
     it('reports that what persisted could not be confirmed when both the version and content are unchanged after the failed PUT', async () => {

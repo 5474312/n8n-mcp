@@ -11,6 +11,8 @@ import {
   N8nServerError,
 } from '@/utils/n8n-errors';
 import { ExecutionStatus } from '@/types/n8n-api';
+import { WorkflowAutoFixer } from '@/services/workflow-auto-fixer';
+import { WorkflowDiffEngine } from '@/services/workflow-diff-engine';
 
 const telemetryMocks = vi.hoisted(() => ({
   trackEvent: vi.fn(),
@@ -36,11 +38,19 @@ vi.mock('@/config/n8n-api', () => ({
   getOfficialMcpConfig: vi.fn().mockReturnValue(null),
   getOfficialMcpConfigFromContext: vi.fn().mockReturnValue(null),
 }));
-vi.mock('@/services/n8n-validation', () => ({
-  validateWorkflowStructure: vi.fn(),
-  hasWebhookTrigger: vi.fn(),
-  getWebhookUrl: vi.fn(),
-}));
+vi.mock('@/services/n8n-validation', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/n8n-validation')>();
+  return {
+    ...actual,
+    validateWorkflowStructure: vi.fn(),
+    hasWebhookTrigger: vi.fn(),
+    getWebhookUrl: vi.fn(),
+    // cleanWorkflowForUpdate is left real: handlers-workflow-diff.ts (reached indirectly
+    // through handleAutofixWorkflow) needs the genuine implementation for its
+    // sameWritableContent rollback comparisons, which silently return false — not throw —
+    // when this is missing, masking the gap as a spurious "restore incomplete" outcome.
+  };
+});
 vi.mock('@/utils/logger', () => ({
   logger: {
     info: vi.fn(),
@@ -68,6 +78,16 @@ vi.mock('@/telemetry/telemetry-manager', () => ({
     trackWorkflowMutation: telemetryMocks.trackWorkflowMutation,
   },
 }));
+// Only handleAutofixWorkflow's own "applying fixes failed" pass-through test overrides
+// these; nothing else in this file calls WorkflowAutoFixer or reaches WorkflowDiffEngine.
+vi.mock('@/services/workflow-auto-fixer', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/workflow-auto-fixer')>();
+  return { ...actual, WorkflowAutoFixer: vi.fn() };
+});
+vi.mock('@/services/workflow-diff-engine', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/workflow-diff-engine')>();
+  return { ...actual, WorkflowDiffEngine: vi.fn() };
+});
 
 describe('handlers-n8n-manager', () => {
   let mockApiClient: any;
@@ -2457,6 +2477,64 @@ describe('handlers-n8n-manager', () => {
         reason: 'insufficient_api_key_scope',
         draftVersionId: 'draft-1',
         publishedVersionUnchanged: true,
+      });
+    });
+  });
+
+  describe('handleAutofixWorkflow - update failure pass-through (#1124)', () => {
+    it('passes the partial-update failure\'s details through under updateDetails', async () => {
+      // Drive the failure through the real handleUpdatePartialWorkflow (its PUBLISH_FORBIDDEN
+      // outcomes are already covered in depth in handlers-workflow-diff.test.ts) rather than
+      // mocking it away, since that module and this one import each other
+      // (handleUpdatePartialWorkflow calls back into getN8nApiClient here) and module-mocking
+      // one from the other's test file does not reliably override the live binding the source
+      // actually calls. WorkflowDiffEngine is mocked to return the workflow completely
+      // unchanged, so the outcome is deterministic: version AND content both come back
+      // unchanged after the failed PUT, landing in the simplest PUBLISH_FORBIDDEN state.
+      const testWorkflow = createTestWorkflow();
+      mockApiClient.getWorkflow.mockResolvedValue(testWorkflow);
+      mockApiClient.updateWorkflow.mockRejectedValue(
+        new N8nApiError(
+          "Your change was saved as a draft. It wasn't published because this API key does not have the workflow:activate scope.",
+          403,
+          'PUBLISH_FORBIDDEN',
+          { reason: 'insufficient_api_key_scope', versionId: 'draft-1' },
+        )
+      );
+      mockValidator.validateWorkflow.mockResolvedValue({ errors: [], warnings: [] });
+      vi.mocked(WorkflowAutoFixer).mockImplementation(() => ({
+        generateFixes: vi.fn().mockResolvedValue({
+          fixes: [{ nodeId: 'node1', nodeName: 'Start', field: 'typeVersion', type: 'typeversion-correction', description: 'Upgrade typeVersion', confidence: 'high' }],
+          operations: [{ type: 'updateNode', nodeId: 'node1', updates: { typeVersion: 1 } }],
+          summary: 'Applied 1 fix',
+          stats: { totalFixes: 1 },
+        }),
+      }) as any);
+      vi.mocked(WorkflowDiffEngine).mockImplementation(() => ({
+        applyDiff: vi.fn().mockResolvedValue({
+          success: true,
+          workflow: testWorkflow,
+          operationsApplied: 1,
+          message: 'ok',
+          errors: [],
+        }),
+      }) as any);
+
+      const result = await handlers.handleAutofixWorkflow(
+        { id: 'test-workflow-id', applyFixes: true },
+        mockRepository
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Failed to apply fixes');
+      expect(result.code).toBe('PUBLISH_FORBIDDEN');
+      expect((result.details as any).updateError).toContain('could not be confirmed');
+      // The regression this test guards: the wrapper used to drop updateResult.details
+      // entirely, leaving callers only the flattened error string to parse.
+      expect((result.details as any).updateDetails).toMatchObject({
+        reason: 'insufficient_api_key_scope',
+        draftVersionId: 'draft-1',
+        rollbackPerformed: false,
       });
     });
   });

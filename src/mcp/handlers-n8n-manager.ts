@@ -1669,7 +1669,11 @@ export async function handleAutofixWorkflow(
           ...(updateResult.code ? { code: updateResult.code } : {}),
           details: {
             fixes: fixResult.fixes,
-            updateError: updateResult.error
+            updateError: updateResult.error,
+            // The partial-update failure's own details (e.g. PUBLISH_FORBIDDEN's
+            // draftVersionId/rollbackPerformed) — dropped before, leaving callers
+            // nothing to act on beyond the flattened error text.
+            ...(updateResult.details ? { updateDetails: updateResult.details } : {})
           }
         };
       }
