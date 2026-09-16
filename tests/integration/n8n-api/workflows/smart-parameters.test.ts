@@ -14,11 +14,10 @@
  * - Bug 2: Zod schema stripping branch/case parameters
  */
 
-import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createTestContext, TestContext, createTestWorkflowName } from '../utils/test-context';
 import { getTestN8nClient } from '../utils/n8n-client';
 import { N8nApiClient } from '../../../../src/services/n8n-api-client';
-import { cleanupOrphanedWorkflows } from '../utils/cleanup-helpers';
 import { createMcpContext, getMcpRepository } from '../utils/mcp-context';
 import { InstanceContext } from '../../../../src/types/instance-context';
 import { NodeRepository } from '../../../../src/database/node-repository';
@@ -44,12 +43,6 @@ describe('Integration: Smart Parameters with Real n8n API', () => {
     await context.cleanup();
     // Clean up environment variable
     delete process.env.SKIP_WORKFLOW_VALIDATION;
-  });
-
-  afterAll(async () => {
-    if (!process.env.CI) {
-      await cleanupOrphanedWorkflows();
-    }
   });
 
   // ======================================================================

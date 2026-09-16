@@ -9,6 +9,12 @@ export default defineConfig({
     environment: 'node',
     // Only include global-setup.ts, remove msw-setup.ts from global setup
     setupFiles: ['./tests/setup/global-setup.ts'],
+    // NOTE: the orphaned-workflow sweep (tests/setup/integration-global-setup.ts,
+    // issue #1102) is registered only in vitest.config.integration.ts, not
+    // here. `npm test` must not touch the live n8n instance on a unit-only
+    // run; each integration file's own `afterEach` cleanup still handles its
+    // own resources, and `npm run test:integration` / the maintenance script
+    // sweep leaks from crashed runs.
     // Load environment variables from .env.test
     env: {
       NODE_ENV: 'test',
